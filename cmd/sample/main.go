@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/hkloudou/xlib/xtransport"
-	"github.com/hkloudou/xlib/xtransport/packets/mqtt"
+	"github.com/hkloudou/xtransport"
+	"github.com/hkloudou/xtransport/packets/mqtt"
 )
 
 func main() {

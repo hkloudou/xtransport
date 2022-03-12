@@ -3,7 +3,7 @@ xtransport is a easy way to provider tcp/ws transport
 
 ## Installation
 ``` sh
-go get -u github.com/hkloudou/xlib/xtransport
+go get -u github.com/hkloudou/xtransport
 ```
 
 
