@@ -9,3 +9,5 @@ git:
 retag:
 	-git autotag -commit 'modify $(shell git describe)' -t -f -p
 	@echo current version:`git describe`
+git-minor:
+	git autotag -commit 'auto commit' -t -f -i -p -l minor
