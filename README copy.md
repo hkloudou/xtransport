@@ -12,8 +12,8 @@ go get -u github.com/hkloudou/xlib/xtransport
 package main
 
 import (
-	"github.com/hkloudou/xtransport"
-	"github.com/hkloudou/xtransport/packets/mqtt"
+	"github.com/hkloudou/xlib/xtransport"
+	"github.com/hkloudou/xlib/xtransport/packets/mqtt"
 )
 
 func main() {

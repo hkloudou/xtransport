@@ -1,19 +1,8 @@
-# :zap: xtransport
-xtransport is a easy way to provider tcp/ws transport
-
-## Installation
-``` sh
-go get -u github.com/hkloudou/xlib/xtransport
-```
-
-
-## Quick Start
-``` go
 package main
 
 import (
-	"github.com/hkloudou/xtransport"
-	"github.com/hkloudou/xtransport/packets/mqtt"
+	"github.com/hkloudou/xlib/xtransport"
+	"github.com/hkloudou/xlib/xtransport/packets/mqtt"
 )
 
 func main() {
@@ -49,31 +38,3 @@ func main() {
 		}
 	})
 }
-
-```
-
-## interface
-```go
-
-type Transport[T Writer] interface {
-	Options() Options
-	Listen() error
-	String() string
-	Accept(fn func(sock Socket[T])) error
-}
-
-type Socket[T Writer] interface {
-	Recv(func(r io.Reader) (T, error)) (T, error)
-	Send(T) error
-	io.Closer
-	Local() string
-	Remote() string
-	ConnectState() *tls.ConnectionState
-	Session() *session
-	SetTimeOut(time.Duration)
-}
-
-type Writer interface {
-	Write(io.Writer) error
-}
-```
