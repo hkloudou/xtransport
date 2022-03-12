@@ -9,7 +9,8 @@ import (
 )
 
 type transport[T xtransport.Writer] struct {
-	opts xtransport.Options
+	opts    xtransport.Options
+	pattern string
 }
 
 func (t *transport[T]) Listen() error {
@@ -26,7 +27,7 @@ func (t *transport[T]) Options() xtransport.Options {
 	return t.opts
 }
 func (t *transport[T]) Accept(fn func(xtransport.Socket[T])) error {
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc(t.pattern, func(w http.ResponseWriter, r *http.Request) {
 		c, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
 			return
@@ -62,10 +63,11 @@ func (t *transport[T]) Accept(fn func(xtransport.Socket[T])) error {
 	}
 }
 
-func NewTransport[T xtransport.Writer](opts ...xtransport.Option) xtransport.Transport[T] {
+func NewTransport[T xtransport.Writer](pattern string, opts ...xtransport.Option) xtransport.Transport[T] {
 	var options xtransport.Options
 	for _, o := range opts {
 		o(&options)
 	}
-	return &transport[T]{opts: options}
+
+	return &transport[T]{opts: options, pattern: pattern}
 }

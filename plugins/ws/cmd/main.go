@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	tran := ws.NewTransport[mqtt.ControlPacket](xtransport.Port(80))
+	tran := ws.NewTransport[mqtt.ControlPacket]("/ws", xtransport.Port(80))
 	tran.Listen()
 	tran.Accept(func(sock xtransport.Socket[mqtt.ControlPacket]) {
 		defer func() {
