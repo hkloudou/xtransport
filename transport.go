@@ -20,7 +20,7 @@ type Socket[T Writer] interface {
 	Local() string
 	Remote() string
 	ConnectState() *tls.ConnectionState
-	Session() *session
+	Session() *Context
 	SetTimeOut(time.Duration)
 }
 

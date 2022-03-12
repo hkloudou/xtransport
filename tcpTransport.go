@@ -47,7 +47,7 @@ func (t *tcpTransport[T]) Accept(fn func(Socket[T])) error {
 		}
 		sock := &tcpSocket[T]{
 			conn:    c,
-			session: NewSession(),
+			Context: NewSession(),
 			obound:  make(chan T, 256),
 		}
 		// log.Println("c", reflect.TypeOf(c))

@@ -10,7 +10,7 @@ import (
 type tcpSocket[T Writer] struct {
 	conn    net.Conn
 	timeout time.Duration
-	*session
+	*Context
 	obound chan T
 	closed bool
 }
