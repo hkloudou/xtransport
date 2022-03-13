@@ -1,6 +1,7 @@
 .PHONY: default
 .DEFAULT_GOAL := default
 default:
+
 	-git autotag -commit 'modify' -f -p
 	@echo current version:`git describe`
 git:
