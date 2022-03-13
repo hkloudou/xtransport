@@ -15,10 +15,10 @@ default:
 	-git autotag -commit 'modify ${GIT_SUBPATH}' -f -p ${GIT_SUB_PARAME}
 	@echo current version:`git describe`
 git:
-	- git autotag -commit 'auto commit ${GIT_SUBPATH}' -t -f -i -p -s ${GIT_SUBPATH}
+	- git autotag -commit 'auto commit ${GIT_SUBPATH}' -t -f -i -p ${GIT_SUB_PARAME}
 	@echo current version:`git describe`
 retag:
-	-git autotag -commit 'retag $(GIT_CLOSEDVERSION)' -t -f -p -s ${GIT_SUBPATH}
+	-git autotag -commit 'retag $(GIT_CLOSEDVERSION)' -t -f -p ${GIT_SUB_PARAME}
 	@echo current version:`git describe`
 git-minor:
-	git autotag -commit 'auto commit ${GIT_SUBPATH}' -t -f -i -p -l minor  -s ${GIT_SUBPATH}
+	git autotag -commit 'auto commit ${GIT_SUBPATH}' -t -f -i -p -l minor ${GIT_SUB_PARAME}
