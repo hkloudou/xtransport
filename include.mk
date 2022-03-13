@@ -2,10 +2,9 @@
 .DEFAULT_GOAL := default
 
 ifneq ($(shell pwd),$(shell git rev-parse --show-toplevel))
-	GIT_SUBPATH=$(subst $(shell git rev-parse --show-toplevel)/,"",$(shell pwd))
+	GIT_SUBPATH=$(subst $(shell git rev-parse --show-toplevel)/,,$(shell pwd))
 	GIT_CLOSEDVERSION = $(shell git describe --abbrev=0  --match ${GIT_SUBPATH}/v[0-9]*\.[0-9]*\.[0-9]*)
 else
-	GIT_SUBPATH=""
 	GIT_CLOSEDVERSION = $(shell git describe --abbrev=0  --match v[0-9]*\.[0-9]*\.[0-9]*)
 endif
 print:
