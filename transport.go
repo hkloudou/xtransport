@@ -1,29 +1,27 @@
 package xtransport
 
 import (
-	"crypto/tls"
 	"io"
-	"time"
 )
 
-type Transport[T Writer] interface {
-	Options() Options
-	Listen() error
-	String() string
-	Accept(fn func(sock Socket[T])) error
-}
-
-type Socket[T Writer] interface {
-	Recv(func(r io.Reader) (T, error)) (T, error)
-	Send(T) error
-	io.Closer
-	Local() string
-	Remote() string
-	ConnectState() *tls.ConnectionState
-	Session() *Context
-	SetTimeOut(time.Duration)
-}
-
-type Writer interface {
+//Packet DataPacket
+type Packet interface {
 	Write(io.Writer) error
 }
+
+// Transport is an interface which is used for communication between
+// services. It uses connection based socket send/recv semantics and
+// has various implementations; http, grpc, quic.
+type Transport[T Packet] interface {
+	// Init(...Option) error
+	Options() Options
+	// Dial(addr string, opts ...DialOption) (Client[T], error)
+	Listen(addr string, opts ...ListenOption) (Listener[T], error)
+	String() string
+}
+
+// type Client[T Packet] interface {
+// 	Socket[T]
+// }
+
+type Option func(*Options)
