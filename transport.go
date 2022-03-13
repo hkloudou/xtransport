@@ -15,13 +15,13 @@ type Packet interface {
 type Transport[T Packet] interface {
 	// Init(...Option) error
 	Options() Options
-	// Dial(addr string, opts ...DialOption) (Client[T], error)
+	Dial(addr string, opts ...DialOption) (Client[T], error)
 	Listen(addr string, opts ...ListenOption) (Listener[T], error)
 	String() string
 }
 
-// type Client[T Packet] interface {
-// 	Socket[T]
-// }
+type Client[T Packet] interface {
+	Socket[T]
+}
 
 type Option func(*Options)
