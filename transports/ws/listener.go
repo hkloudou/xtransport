@@ -25,6 +25,7 @@ func (t *wsTransportListener[T]) Close() error {
 }
 
 func (t *wsTransportListener[T]) Accept(fn func(xtransport.Socket[T])) error {
+	// log.Println("t.pattern", t.pattern)
 	http.HandleFunc(t.pattern, func(w http.ResponseWriter, r *http.Request) {
 		c, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
