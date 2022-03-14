@@ -18,8 +18,8 @@ func (m *p) Write(w io.Writer) error {
 }
 
 func main() {
-	tran := tcp.NewTransport[*p]("unix")
-	l, err := tran.Listen("../xx.lock")
+	tran := tcp.NewTransport[*p]("tcp")
+	l, err := tran.Listen(":10001")
 	if err != nil {
 		panic(err)
 	}
