@@ -55,21 +55,32 @@ func main() {
 ## interface
 ```go
 
-type Transport[T Writer] interface {
+type Transport[T Packet] interface {
+	// Init(...Option) error
 	Options() Options
-	Listen() error
+	Dial(addr string, opts ...DialOption) (Client[T], error)
+	Listen(addr string, opts ...ListenOption) (Listener[T], error)
 	String() string
-	Accept(fn func(sock Socket[T])) error
 }
 
-type Socket[T Writer] interface {
+type Listener[T Packet] interface {
+	Addr() string
+	Close() error
+	Accept(func(Socket[T])) error
+}
+
+type Client[T Packet] interface {
+	Socket[T]
+}
+
+type Socket[T Packet] interface {
 	Recv(func(r io.Reader) (T, error)) (T, error)
 	Send(T) error
 	io.Closer
 	Local() string
 	Remote() string
-	ConnectState() *tls.ConnectionState
-	Session() *session
+	ConnectionState() *tls.ConnectionState
+	Session() *Context
 	SetTimeOut(time.Duration)
 }
 
