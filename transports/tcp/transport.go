@@ -14,6 +14,7 @@ type transport[T xtransport.Packet] struct {
 	opts     xtransport.Options
 	encBuf   *bufio.Writer
 	listener net.Listener
+	network  string
 }
 
 func (t *transport[T]) Dial(addr string, opts ...xtransport.DialOption) (xtransport.Client[T], error) {
@@ -36,26 +37,15 @@ func (t *transport[T]) Dial(addr string, opts ...xtransport.DialOption) (xtransp
 				InsecureSkipVerify: true,
 			}
 		}
-		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: dopts.Timeout}, "tcp", addr, config)
+		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: dopts.Timeout}, t.network, addr, config)
 	} else {
-		conn, err = net.DialTimeout("tcp", addr, dopts.Timeout)
+		conn, err = net.DialTimeout(t.network, addr, dopts.Timeout)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
-	// encBuf := bufio.NewWriter(conn)
-
-	// return &tcpTransportClient[T]{
-	// 	dialOpts: dopts,
-	// 	conn:     conn,
-	// 	encBuf:   encBuf,
-	// 	// enc:      gob.NewEncoder(encBuf),
-	// 	// dec:      gob.NewDecoder(conn),
-	// 	Context: xtransport.NewSession(),
-	// 	timeout: t.opts.Timeout,
-	// }, nil
 	return &tcpSocket[T]{
 		timeout: t.opts.Timeout,
 		conn:    conn,
@@ -76,54 +66,33 @@ func (t *transport[T]) Listen(addr string, opts ...xtransport.ListenOption) (xtr
 		if t.opts.TLSConfig == nil {
 			return nil, fmt.Errorf("[%s] no tlsConfig", t.String())
 		}
-		l, err = tls.Listen("tcp", addr, t.opts.TLSConfig)
+		l, err = tls.Listen(t.network, addr, t.opts.TLSConfig)
 	} else {
-		tcpAddr, _ := net.ResolveTCPAddr("tcp", addr)
-		l, err = net.ListenTCP("tcp", tcpAddr)
+		l, err = net.Listen(t.network, addr)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &tcpTransportListener[T]{
+	return &listener[T]{
 		timeout:  t.opts.Timeout,
 		listener: l,
 	}, nil
 }
 
 func (t *transport[T]) String() string {
-	return "tcp"
+	return t.network
 }
 func (t *transport[T]) Options() xtransport.Options {
 	return t.opts
 }
 
-// func (t *transport[T]) Accept(fn func(xtransport.Socket[T])) error {
-// 	for {
-// 		c, err := t.listener.Accept()
-// 		if err != nil {
-// 			return err
-// 		}
-// 		sock := &tcpSocket[T]{
-// 			conn:    c,
-// 			Context: xtransport.NewSession(),
-// 			obound:  make(chan T, 256),
-// 		}
-// 		go func() {
-// 			defer func() {
-// 				if r := recover(); r != nil {
-// 					sock.Close()
-// 				}
-// 			}()
-// 			go sock.loop()
-// 			fn(sock)
-// 		}()
-// 	}
-// }
-
-func NewTransport[T xtransport.Packet](opts ...xtransport.Option) xtransport.Transport[T] {
+func NewTransport[T xtransport.Packet](network string, opts ...xtransport.Option) xtransport.Transport[T] {
 	var options xtransport.Options
 	for _, o := range opts {
 		o(&options)
 	}
-	return &transport[T]{opts: options}
+	if network == "" {
+		network = "tcp"
+	}
+	return &transport[T]{opts: options, network: network}
 }

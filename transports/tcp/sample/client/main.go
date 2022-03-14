@@ -16,8 +16,8 @@ func (m *p) Write(w io.Writer) error {
 	return err
 }
 func main() {
-	tran := tcp.NewTransport[*p]()
-	c, err := tran.Dial("127.0.0.1:10001")
+	tran := tcp.NewTransport[*p]("tcp")
+	c, err := tran.Dial("../xx.lock")
 	if err != nil {
 		panic(err)
 	}

@@ -8,20 +8,20 @@ import (
 	"github.com/hkloudou/xtransport"
 )
 
-type tcpTransportListener[T xtransport.Packet] struct {
+type listener[T xtransport.Packet] struct {
 	listener net.Listener
 	timeout  time.Duration
 }
 
-func (t *tcpTransportListener[T]) Addr() string {
+func (t *listener[T]) Addr() string {
 	return t.listener.Addr().String()
 }
 
-func (t *tcpTransportListener[T]) Close() error {
+func (t *listener[T]) Close() error {
 	return t.listener.Close()
 }
 
-func (t *tcpTransportListener[T]) Accept(fn func(xtransport.Socket[T])) error {
+func (t *listener[T]) Accept(fn func(xtransport.Socket[T])) error {
 	var tempDelay time.Duration
 
 	for {
