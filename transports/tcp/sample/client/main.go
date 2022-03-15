@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"sync"
+	"time"
 
 	tcp "github.com/hkloudou/xtransport/transports/tcp"
 )
@@ -43,6 +44,11 @@ func main() {
 	}()
 
 	wg.Wait()
+	time.Sleep(3 * time.Second)
+	c.Send(&p{
+		data: []byte{4, 5, 6},
+	})
+
 	// time.Sleep(1 * time.Second)
 	c.Close()
 

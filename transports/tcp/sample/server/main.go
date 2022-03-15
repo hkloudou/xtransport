@@ -24,14 +24,23 @@ func main() {
 		panic(err)
 	}
 	l.Accept(func(sock xtransport.Socket[*p]) {
+		log.Println("Accept")
 		for {
 			request, err := sock.Recv(func(r io.Reader) (*p, error) {
-				var bt = make([]byte, 1)
-				_, err := io.ReadFull(r, bt)
+				// time.Sleep(5 * time.Second)
+				b := make([]byte, 1)
+
+				_, err := io.ReadFull(r, b)
+
+				// bt2, err2 := io.ReadFull(r)
+				log.Println(err, b)
+				// var bt = make([]byte, 1)
+				// _, err := io.ReadFull(r, bt)
 				if err != nil {
+					// log.pr
 					return nil, err
 				}
-				return &p{data: bt}, nil
+				return &p{data: b}, nil
 			})
 			log.Println("request.data", request.data)
 			if err != nil {
