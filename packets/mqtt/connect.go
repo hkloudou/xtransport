@@ -137,7 +137,7 @@ func (c *ConnectPacket) Unpack(b io.Reader) error {
 }
 
 // Validate performs validation of the fields of a Connect packet
-func (c *ConnectPacket) Validate() byte {
+func (c *ConnectPacket) Validate() ConnackReturnCode {
 	if c.PasswordFlag && !c.UsernameFlag {
 		return ErrRefusedBadUsernameOrPassword
 	}

@@ -24,6 +24,8 @@ import (
 	"io"
 )
 
+type ConnackReturnCode byte
+
 // ControlPacket defines the interface for structs intended to hold
 // decoded MQTT packets, either from being read or before being
 // written
@@ -75,19 +77,19 @@ const (
 // Below are the const definitions for error codes returned by
 // Connect()
 const (
-	Accepted                        = 0x00
-	ErrRefusedBadProtocolVersion    = 0x01
-	ErrRefusedIDRejected            = 0x02
-	ErrRefusedServerUnavailable     = 0x03
-	ErrRefusedBadUsernameOrPassword = 0x04
-	ErrRefusedNotAuthorised         = 0x05
-	ErrNetworkError                 = 0xFE
-	ErrProtocolViolation            = 0xFF
+	Accepted                        ConnackReturnCode = 0x00
+	ErrRefusedBadProtocolVersion    ConnackReturnCode = 0x01
+	ErrRefusedIDRejected            ConnackReturnCode = 0x02
+	ErrRefusedServerUnavailable     ConnackReturnCode = 0x03
+	ErrRefusedBadUsernameOrPassword ConnackReturnCode = 0x04
+	ErrRefusedNotAuthorised         ConnackReturnCode = 0x05
+	ErrNetworkError                 ConnackReturnCode = 0xFE
+	ErrProtocolViolation            ConnackReturnCode = 0xFF
 )
 
 // ConnackReturnCodes is a map of the error codes constants for Connect()
 // to a string representation of the error
-var ConnackReturnCodes = map[uint8]string{
+var ConnackReturnCodes = map[ConnackReturnCode]string{
 	0:   "Connection Accepted",
 	1:   "Connection Refused: Bad Protocol Version",
 	2:   "Connection Refused: Client Identifier Rejected",
@@ -110,7 +112,7 @@ var (
 
 // ConnErrors is a map of the errors codes constants for Connect()
 // to a Go error
-var ConnErrors = map[byte]error{
+var ConnErrors = map[ConnackReturnCode]error{
 	Accepted:                        nil,
 	ErrRefusedBadProtocolVersion:    ErrorRefusedBadProtocolVersion,
 	ErrRefusedIDRejected:            ErrorRefusedIDRejected,
@@ -279,7 +281,13 @@ func (fh *FixedHeader) unpack(typeAndFlags byte, r io.Reader) error {
 	fh.Dup = (typeAndFlags>>3)&0x01 > 0
 	fh.Qos = (typeAndFlags >> 1) & 0x03
 	fh.Retain = typeAndFlags&0x01 > 0
-
+	if fh.MessageType < 1 || fh.MessageType > 14 {
+		// http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.pdf
+		// Where a flag bit is marked as “Reserved” in Table 2.2 -
+		// 244 Flag Bits, it is reserved for future use and MUST be set to the value listed in that table [MQTT-2.2.2-1]. If
+		// 245 invalid flags are received, the receiver MUST close the Network Connection
+		return fmt.Errorf(`Invalid mqtt flag(messagetype)`)
+	}
 	var err error
 	fh.RemainingLength, err = decodeLength(r)
 	return err

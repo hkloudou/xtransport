@@ -27,7 +27,7 @@ import (
 type ConnackPacket struct {
 	FixedHeader
 	SessionPresent bool
-	ReturnCode     byte
+	ReturnCode     ConnackReturnCode
 }
 
 func (ca *ConnackPacket) String() string {
@@ -39,7 +39,7 @@ func (ca *ConnackPacket) Write(w io.Writer) error {
 	var err error
 
 	body.WriteByte(boolToByte(ca.SessionPresent))
-	body.WriteByte(ca.ReturnCode)
+	body.WriteByte(byte(ca.ReturnCode))
 	ca.FixedHeader.RemainingLength = 2
 	packet := ca.FixedHeader.pack()
 	packet.Write(body.Bytes())
@@ -56,8 +56,11 @@ func (ca *ConnackPacket) Unpack(b io.Reader) error {
 		return err
 	}
 	ca.SessionPresent = 1&flags > 0
-	ca.ReturnCode, err = decodeByte(b)
-
+	bt, err := decodeByte(b)
+	if err != nil {
+		return err
+	}
+	ca.ReturnCode = ConnackReturnCode(bt)
 	return err
 }
 
