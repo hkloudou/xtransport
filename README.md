@@ -14,10 +14,11 @@ package main
 import (
 	"github.com/hkloudou/xtransport"
 	"github.com/hkloudou/xtransport/packets/mqtt"
+	transport "github.com/hkloudou/xtransport/transports/tcp"
 )
 
 func main() {
-	tran := xtransport.NewTcpTransport()
+	tran := transport.NewTransport("tcp", xtransport.Secure(false))
 	if err := tran.Listen(); err != nil {
 		panic(err)
 	}
