@@ -11,7 +11,7 @@ import (
 	"github.com/hkloudou/xtransport"
 )
 
-type tcpSocket[T xtransport.Packet] struct {
+type tcpSocket struct {
 	conn    net.Conn
 	timeout time.Duration
 	*xtransport.Context
@@ -19,7 +19,7 @@ type tcpSocket[T xtransport.Packet] struct {
 	closed bool
 }
 
-func (t *tcpSocket[T]) ConnectionState() *tls.ConnectionState {
+func (t *tcpSocket) ConnectionState() *tls.ConnectionState {
 	if c2, ok := t.conn.(*tls.Conn); ok {
 		tmp := c2.ConnectionState()
 		return &tmp
@@ -27,15 +27,15 @@ func (t *tcpSocket[T]) ConnectionState() *tls.ConnectionState {
 	return nil
 }
 
-func (t *tcpSocket[T]) Local() string {
+func (t *tcpSocket) Local() string {
 	return t.conn.LocalAddr().String()
 }
 
-func (t *tcpSocket[T]) Remote() string {
+func (t *tcpSocket) Remote() string {
 	return t.conn.RemoteAddr().String()
 }
 
-func (t *tcpSocket[T]) Recv(fc func(r io.Reader) (T, error)) (T, error) {
+func (t *tcpSocket) Recv(fc func(r io.Reader) (T, error)) (T, error) {
 	defer func() {
 		if r := recover(); r != nil {
 			return
@@ -65,7 +65,7 @@ func (t *tcpSocket[T]) Recv(fc func(r io.Reader) (T, error)) (T, error) {
 // 	}
 // }
 
-func (t *tcpSocket[T]) Send(m T) error {
+func (t *tcpSocket) Send(m interface{}) error {
 	defer func() {
 		if r := recover(); r != nil {
 			return

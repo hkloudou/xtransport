@@ -1,14 +1,5 @@
 package xtransport
 
-import (
-	"io"
-)
-
-//Packet DataPacket
-type Packet interface {
-	Write(io.Writer) error
-}
-
 // Transport is an interface which is used for communication between
 // services. It uses connection based socket send/recv semantics and
 // has various implementations; http, grpc, quic.

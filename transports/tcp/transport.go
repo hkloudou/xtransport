@@ -10,14 +10,14 @@ import (
 	"github.com/hkloudou/xtransport"
 )
 
-type transport[T xtransport.Packet] struct {
+type transport struct {
 	opts     xtransport.Options
 	encBuf   *bufio.Writer
 	listener net.Listener
 	network  string
 }
 
-func (t *transport[T]) Dial(addr string, opts ...xtransport.DialOption) (xtransport.Client[T], error) {
+func (t *transport) Dial(addr string, opts ...xtransport.DialOption) (xtransport.Client, error) {
 	dopts := xtransport.DialOptions{
 		Timeout: 5 * time.Second,
 	}
@@ -46,7 +46,7 @@ func (t *transport[T]) Dial(addr string, opts ...xtransport.DialOption) (xtransp
 		return nil, err
 	}
 
-	return &tcpSocket[T]{
+	return &tcpSocket{
 		timeout: t.opts.Timeout,
 		conn:    conn,
 		// encBuf:  bufio.NewWriter(c),
@@ -54,7 +54,7 @@ func (t *transport[T]) Dial(addr string, opts ...xtransport.DialOption) (xtransp
 	}, nil
 }
 
-func (t *transport[T]) Listen(addr string, opts ...xtransport.ListenOption) (xtransport.Listener[T], error) {
+func (t *transport) Listen(addr string, opts ...xtransport.ListenOption) (xtransport.Listener, error) {
 	var options xtransport.ListenOptions
 	for _, o := range opts {
 		o(&options)
@@ -73,20 +73,20 @@ func (t *transport[T]) Listen(addr string, opts ...xtransport.ListenOption) (xtr
 	if err != nil {
 		return nil, err
 	}
-	return &listener[T]{
+	return &listener{
 		timeout:  t.opts.Timeout,
 		listener: l,
 	}, nil
 }
 
-func (t *transport[T]) String() string {
+func (t *transport) String() string {
 	return t.network
 }
-func (t *transport[T]) Options() xtransport.Options {
+func (t *transport) Options() xtransport.Options {
 	return t.opts
 }
 
-func NewTransport[T xtransport.Packet](network string, opts ...xtransport.Option) xtransport.Transport[T] {
+func NewTransport[T xtransport.Packet](network string, opts ...xtransport.Option) xtransport.Transport {
 	var options xtransport.Options
 	for _, o := range opts {
 		o(&options)
@@ -94,5 +94,5 @@ func NewTransport[T xtransport.Packet](network string, opts ...xtransport.Option
 	if network == "" {
 		network = "tcp"
 	}
-	return &transport[T]{opts: options, network: network}
+	return &transport{opts: options, network: network}
 }
