@@ -3,10 +3,10 @@ package xtransport
 import "context"
 
 type ListenOption func(*ListenOptions)
-type Listener[T Packet] interface {
+type Listener interface {
 	Addr() string
 	Close() error
-	Accept(func(Socket[T])) error
+	Accept(func(Socket)) error
 }
 
 type ListenOptions struct {

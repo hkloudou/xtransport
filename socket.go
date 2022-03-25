@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-type Socket[T Packet] interface {
-	Recv(func(r io.Reader) (T, error)) (T, error)
-	Send(T) error
+type Socket interface {
+	Recv(func(r io.Reader) (interface{}, error)) (interface{}, error)
+	Send(interface{}) error
 	io.Closer
 	Local() string
 	Remote() string

@@ -18,11 +18,13 @@ func (m *p) Write(w io.Writer) error {
 }
 
 func main() {
+	port := ":11444"
 	tran := transport.NewTransport[*p]("/ws", xtransport.Secure(true), xtransport.TLSConfig(cfg))
-	l, err := tran.Listen(":11443")
+	l, err := tran.Listen(port)
 	if err != nil {
 		panic(err)
 	}
+	log.Println(tran.String(), "listen on", port)
 	l.Accept(func(sock xtransport.Socket[*p]) {
 		log.Println("sock", sock.Remote(), "connected")
 		state := sock.ConnectionState()

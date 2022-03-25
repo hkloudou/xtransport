@@ -3,6 +3,7 @@ package ws
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -38,6 +39,14 @@ func (t *wsTransportListener[T]) Accept(fn func(xtransport.Socket[T])) error {
 	}
 	// serve.Handler.ServeHTTP()
 	http.HandleFunc(t.pattern, func(w http.ResponseWriter, r *http.Request) {
+		log.Println(r.Host)
+		log.Println("r.TLS.ServerName", r.TLS.ServerName)
+		// log.Println("r.TLS.ServerName", r.TLS.PeerCertificates)
+		for _, v := range r.TLS.PeerCertificates {
+			log.Println("cert", v.Subject.CommonName)
+		}
+		// log.Println(r.)
+		// state :=
 		c, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
 			return

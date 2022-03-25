@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"log"
+	"time"
 
 	"github.com/hkloudou/xtransport"
 	tcp "github.com/hkloudou/xtransport/transports/tcp"
@@ -18,17 +19,25 @@ func (m *p) Write(w io.Writer) error {
 }
 
 func main() {
-	tran := tcp.NewTransport[*p]("tcp")
-	l, err := tran.Listen(":10001")
+	tran := tcp.NewTransport[*p]("tcp", xtransport.Secure(true), xtransport.TLSConfig(cfg))
+	l, err := tran.Listen(":8883")
 	if err != nil {
 		panic(err)
 	}
 	l.Accept(func(sock xtransport.Socket[*p]) {
-		log.Println("Accept")
+		log.Println("Accept", sock.Remote())
+		defer func() {
+			// if r := recover(); r != nil {
+			// 	println("panic", fmt.Sprintf("%v", r))
+			// }
+			sock.Close()
+			log.Println("sock", sock.Remote(), "closed")
+		}()
 		for {
 			request, err := sock.Recv(func(r io.Reader) (*p, error) {
 				// time.Sleep(5 * time.Second)
 				b := make([]byte, 1)
+				log.Println("sn", sock.ConnectionState().ServerName)
 
 				_, err := io.ReadFull(r, b)
 
@@ -46,6 +55,8 @@ func main() {
 			if err != nil {
 				break
 			}
+			time.Sleep(1000 * time.Millisecond)
+			sock.Send(request)
 		}
 	})
 	<-make(chan bool)
