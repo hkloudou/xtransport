@@ -7,21 +7,21 @@ import (
 	"github.com/lucas-clemente/quic-go"
 )
 
-type quicListener[T xtransport.Packet] struct {
+type quicListener struct {
 	l    quic.Listener
-	t    *quicTransport[T]
+	t    *quicTransport
 	opts xtransport.ListenOptions
 }
 
-func (q *quicListener[T]) Addr() string {
+func (q *quicListener) Addr() string {
 	return q.l.Addr().String()
 }
 
-func (q *quicListener[T]) Close() error {
+func (q *quicListener) Close() error {
 	return q.l.Close()
 }
 
-func (t *quicListener[T]) Accept(fn func(xtransport.Socket[T])) error {
+func (t *quicListener) Accept(fn func(xtransport.Socket)) error {
 	for {
 		s, err := t.l.Accept(context.TODO())
 		if err != nil {
@@ -33,7 +33,7 @@ func (t *quicListener[T]) Accept(fn func(xtransport.Socket[T])) error {
 		}
 
 		go func() {
-			fn(&quicSocket[T]{
+			fn(&quicSocket{
 				s:  s,
 				st: stream,
 			})

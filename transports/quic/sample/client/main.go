@@ -7,16 +7,18 @@ import (
 	quic "github.com/hkloudou/xtransport/transports/quic"
 )
 
+var _ io.WriterTo = &p{}
+
 type p struct {
 	data []byte
 }
 
-func (m *p) Write(w io.Writer) error {
-	_, err := w.Write(m.data)
-	return err
+func (m *p) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(m.data)
+	return int64(n), err
 }
 func main() {
-	tran := quic.NewTransport[*p]()
+	tran := quic.NewTransport()
 	c, err := tran.Dial(":1234")
 	if err != nil {
 		panic(err)

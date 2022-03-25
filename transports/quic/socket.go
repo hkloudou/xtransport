@@ -1,9 +1,7 @@
 package quic
 
 import (
-	"bytes"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"time"
 
@@ -11,7 +9,7 @@ import (
 	"github.com/lucas-clemente/quic-go"
 )
 
-type quicSocket[T xtransport.Packet] struct {
+type quicSocket struct {
 	// conn    net.Conn
 	timeout time.Duration
 	*xtransport.Context
@@ -20,19 +18,19 @@ type quicSocket[T xtransport.Packet] struct {
 	closed bool
 }
 
-func (t *quicSocket[T]) ConnectionState() *tls.ConnectionState {
+func (t *quicSocket) ConnectionState() *tls.ConnectionState {
 	return t.ConnectionState()
 }
 
-func (t *quicSocket[T]) Local() string {
+func (t *quicSocket) Local() string {
 	return t.s.LocalAddr().String()
 }
 
-func (t *quicSocket[T]) Remote() string {
+func (t *quicSocket) Remote() string {
 	return t.s.RemoteAddr().String()
 }
 
-func (t *quicSocket[T]) Recv(fc func(r io.Reader) (T, error)) (T, error) {
+func (t *quicSocket) Recv(fc func(r io.Reader) (interface{}, error)) (interface{}, error) {
 	defer func() {
 		if r := recover(); r != nil {
 			return
@@ -44,7 +42,7 @@ func (t *quicSocket[T]) Recv(fc func(r io.Reader) (T, error)) (T, error) {
 	return fc(t.st)
 }
 
-func (t *quicSocket[T]) Send(m T) error {
+func (t *quicSocket) Send(m interface{}) error {
 	defer func() {
 		if r := recover(); r != nil {
 			return
@@ -53,21 +51,15 @@ func (t *quicSocket[T]) Send(m T) error {
 	if t.timeout > time.Duration(0) {
 		t.st.SetWriteDeadline(time.Now().Add(t.timeout))
 	}
-	var buf bytes.Buffer
-	if err := m.Write(&buf); err != nil {
-		return err
-	}
-	if buf.Len() == 0 {
-		return fmt.Errorf("empty packet send")
-	}
-	return m.Write(t.st)
+	_, err := xtransport.Write(t.st, m)
+	return err
 }
 
-func (t *quicSocket[T]) SetTimeOut(duration time.Duration) {
+func (t *quicSocket) SetTimeOut(duration time.Duration) {
 	t.timeout = duration
 }
 
-func (t *quicSocket[T]) Close() error {
+func (t *quicSocket) Close() error {
 	if t.closed {
 		return nil
 	}

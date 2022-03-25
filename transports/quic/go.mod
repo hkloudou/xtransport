@@ -2,7 +2,7 @@ module github.com/hkloudou/xtransport/transports/quic
 
 go 1.18
 
-require github.com/hkloudou/xtransport v1.1.5
+require github.com/hkloudou/xtransport v1.1.7
 
 require (
 	github.com/cheekybits/genny v1.0.0 // indirect

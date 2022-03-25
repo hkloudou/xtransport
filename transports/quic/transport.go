@@ -9,11 +9,11 @@ import (
 	"github.com/lucas-clemente/quic-go"
 )
 
-type quicTransport[T xtransport.Packet] struct {
+type quicTransport struct {
 	opts xtransport.Options
 }
 
-func (t *quicTransport[T]) Dial(addr string, opts ...xtransport.DialOption) (xtransport.Client[T], error) {
+func (t *quicTransport) Dial(addr string, opts ...xtransport.DialOption) (xtransport.Client, error) {
 	var options xtransport.DialOptions
 	for _, o := range opts {
 		o(&options)
@@ -32,8 +32,8 @@ func (t *quicTransport[T]) Dial(addr string, opts ...xtransport.DialOption) (xtr
 		return nil, err
 	}
 
-	return &quicClient[T]{
-		&quicSocket[T]{
+	return &quicClient{
+		&quicSocket{
 			s:  s,
 			st: st,
 		},
@@ -42,7 +42,7 @@ func (t *quicTransport[T]) Dial(addr string, opts ...xtransport.DialOption) (xtr
 	}, nil
 }
 
-func (t *quicTransport[T]) Listen(addr string, opts ...xtransport.ListenOption) (xtransport.Listener[T], error) {
+func (t *quicTransport) Listen(addr string, opts ...xtransport.ListenOption) (xtransport.Listener, error) {
 	var options xtransport.ListenOptions
 	for _, o := range opts {
 		o(&options)
@@ -60,24 +60,24 @@ func (t *quicTransport[T]) Listen(addr string, opts ...xtransport.ListenOption) 
 	if err != nil {
 		return nil, err
 	}
-	return &quicListener[T]{
+	return &quicListener{
 		l:    l,
 		t:    t,
 		opts: options,
 	}, nil
 }
 
-func (t *quicTransport[T]) String() string {
+func (t *quicTransport) String() string {
 	return "quic"
 }
-func (t *quicTransport[T]) Options() xtransport.Options {
+func (t *quicTransport) Options() xtransport.Options {
 	return t.opts
 }
 
-func NewTransport[T xtransport.Packet](opts ...xtransport.Option) xtransport.Transport[T] {
+func NewTransport(opts ...xtransport.Option) xtransport.Transport {
 	var options xtransport.Options
 	for _, o := range opts {
 		o(&options)
 	}
-	return &quicTransport[T]{opts: options}
+	return &quicTransport{opts: options}
 }
