@@ -17,11 +17,11 @@ import (
 )
 
 func main() {
-	tran := xtransport.NewTcpTransport[mqtt.ControlPacket]()
+	tran := xtransport.NewTcpTransport()
 	if err := tran.Listen(); err != nil {
 		panic(err)
 	}
-	tran.Accept(func(sock xtransport.Socket[mqtt.ControlPacket]) {
+	tran.Accept(func(sock xtransport.Socket) {
 		defer func() {
 			if r := recover(); r != nil {
 				println(r)
@@ -29,22 +29,39 @@ func main() {
 			sock.Close()
 		}()
 		for {
-			request, err := sock.Recv(mqtt.ReadPacket)
+			request, err := sock.Recv(func(r io.Reader) (interface{}, error) {
+				i, err := mqtt.ReadPacket(r)
+				return i, err
+			})
 			if err != nil {
-				break
+				return
 			}
-			if request.Type() == mqtt.Disconnect {
-				break
-			}
-			if request.Type() <= 0 || request.Type() >= 14 {
-				break
-			}
-			if request.Type() == mqtt.Pingreq {
-				sock.Send(mqtt.NewControlPacket(mqtt.Pingresp))
+			if request == nil {
 				continue
 			}
-			if request.Type() == mqtt.Connect {
-				sock.Session().Set("clientIdentifier", request.(*mqtt.ConnectPacket).ClientIdentifier)
+			// log.Println("recv", request.String())
+			if request.(mqtt.ControlPacket).Type() <= 0 || request.(mqtt.ControlPacket).Type() >= 14 {
+				sock.Close()
+				return
+			}
+			switch request.(mqtt.ControlPacket).Type() {
+			case mqtt.Pingreq:
+				sock.Send(mqtt.NewControlPacket(mqtt.Pingresp))
+				break
+			case mqtt.Connect:
+				_hook.OnClientConnect(sock, request.(*mqtt.ConnectPacket))
+				break
+			case mqtt.Subscribe:
+				_hook.OnClientSubcribe(sock, request.(*mqtt.SubscribePacket))
+				break
+			case mqtt.Unsubscribe:
+				_hook.OnClientUnSubcribe(sock, request.(*mqtt.UnsubscribePacket))
+				break
+			case mqtt.Publish:
+				_hook.OnClientPublish(sock, request.(*mqtt.PublishPacket))
+				break
+			default:
+				// return nil, fmt.Errorf("not support packet type:%d", data.Type())
 			}
 		}
 	})
@@ -54,28 +71,22 @@ func main() {
 
 ## interface
 ```go
-
-type Transport[T Packet] interface {
-	// Init(...Option) error
+type Transport interface {
 	Options() Options
-	Dial(addr string, opts ...DialOption) (Client[T], error)
-	Listen(addr string, opts ...ListenOption) (Listener[T], error)
+	Dial(addr string, opts ...DialOption) (Client, error)
+	Listen(addr string, opts ...ListenOption) (Listener, error)
 	String() string
 }
 
-type Listener[T Packet] interface {
+type Listener interface {
 	Addr() string
 	Close() error
-	Accept(func(Socket[T])) error
+	Accept(func(Socket)) error
 }
 
-type Client[T Packet] interface {
-	Socket[T]
-}
-
-type Socket[T Packet] interface {
-	Recv(func(r io.Reader) (T, error)) (T, error)
-	Send(T) error
+type Socket interface {
+	Recv(func(r io.Reader) (interface{}, error)) (interface{}, error)
+	Send(interface{}) error
 	io.Closer
 	Local() string
 	Remote() string
@@ -84,7 +95,7 @@ type Socket[T Packet] interface {
 	SetTimeOut(time.Duration)
 }
 
-type Writer interface {
-	Write(io.Writer) error
+type Client interface {
+	Socket
 }
 ```
