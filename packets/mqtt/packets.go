@@ -30,7 +30,8 @@ type ConnackReturnCode byte
 // decoded MQTT packets, either from being read or before being
 // written
 type ControlPacket interface {
-	Write(io.Writer) error
+	// Write(io.Writer) error
+	io.WriterTo
 	Unpack(io.Reader) error
 	String() string
 	Details() Details

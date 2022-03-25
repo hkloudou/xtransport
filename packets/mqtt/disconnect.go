@@ -30,11 +30,9 @@ func (d *DisconnectPacket) String() string {
 	return d.FixedHeader.String()
 }
 
-func (d *DisconnectPacket) Write(w io.Writer) error {
+func (d *DisconnectPacket) WriteTo(w io.Writer) (n int64, err error) {
 	packet := d.FixedHeader.pack()
-	_, err := packet.WriteTo(w)
-
-	return err
+	return packet.WriteTo(w)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

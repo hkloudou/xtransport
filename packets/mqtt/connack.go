@@ -34,18 +34,14 @@ func (ca *ConnackPacket) String() string {
 	return fmt.Sprintf("%s sessionpresent: %t returncode: %d", ca.FixedHeader, ca.SessionPresent, ca.ReturnCode)
 }
 
-func (ca *ConnackPacket) Write(w io.Writer) error {
+func (ca *ConnackPacket) WriteTo(w io.Writer) (n int64, err error) {
 	var body bytes.Buffer
-	var err error
-
 	body.WriteByte(boolToByte(ca.SessionPresent))
 	body.WriteByte(byte(ca.ReturnCode))
 	ca.FixedHeader.RemainingLength = 2
 	packet := ca.FixedHeader.pack()
 	packet.Write(body.Bytes())
-	_, err = packet.WriteTo(w)
-
-	return err
+	return packet.WriteTo(w)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

@@ -32,14 +32,11 @@ func (pr *PubrelPacket) String() string {
 	return fmt.Sprintf("%s MessageID: %d", pr.FixedHeader, pr.MessageID)
 }
 
-func (pr *PubrelPacket) Write(w io.Writer) error {
-	var err error
+func (pr *PubrelPacket) WriteTo(w io.Writer) (n int64, err error) {
 	pr.FixedHeader.RemainingLength = 2
 	packet := pr.FixedHeader.pack()
 	packet.Write(encodeUint16(pr.MessageID))
-	_, err = packet.WriteTo(w)
-
-	return err
+	return packet.WriteTo(w)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

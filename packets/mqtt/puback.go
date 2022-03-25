@@ -32,15 +32,22 @@ func (pa *PubackPacket) String() string {
 	return fmt.Sprintf("%s MessageID: %d", pa.FixedHeader, pa.MessageID)
 }
 
-func (pa *PubackPacket) Write(w io.Writer) error {
-	var err error
+func (pa *PubackPacket) WriteTo(w io.Writer) (n int64, err error) {
 	pa.FixedHeader.RemainingLength = 2
 	packet := pa.FixedHeader.pack()
 	packet.Write(encodeUint16(pa.MessageID))
-	_, err = packet.WriteTo(w)
-
-	return err
+	return packet.WriteTo(w)
 }
+
+// func (pa *PubackPacket) Write(w io.Writer) error {
+// 	var err error
+// 	pa.FixedHeader.RemainingLength = 2
+// 	packet := pa.FixedHeader.pack()
+// 	packet.Write(encodeUint16(pa.MessageID))
+// 	_, err = packet.WriteTo(w)
+
+// 	return err
+// }
 
 // Unpack decodes the details of a ControlPacket after the fixed
 // header has been read

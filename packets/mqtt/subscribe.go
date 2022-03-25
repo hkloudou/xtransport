@@ -35,10 +35,8 @@ func (s *SubscribePacket) String() string {
 	return fmt.Sprintf("%s MessageID: %d topics: %s", s.FixedHeader, s.MessageID, s.Topics)
 }
 
-func (s *SubscribePacket) Write(w io.Writer) error {
+func (s *SubscribePacket) WriteTo(w io.Writer) (n int64, err error) {
 	var body bytes.Buffer
-	var err error
-
 	body.Write(encodeUint16(s.MessageID))
 	for i, topic := range s.Topics {
 		body.Write(encodeString(topic))
@@ -47,9 +45,7 @@ func (s *SubscribePacket) Write(w io.Writer) error {
 	s.FixedHeader.RemainingLength = body.Len()
 	packet := s.FixedHeader.pack()
 	packet.Write(body.Bytes())
-	_, err = packet.WriteTo(w)
-
-	return err
+	return packet.WriteTo(w)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

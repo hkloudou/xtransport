@@ -35,10 +35,9 @@ func (p *PublishPacket) String() string {
 	return fmt.Sprintf("%s topicName: %s MessageID: %d payload: %s", p.FixedHeader, p.TopicName, p.MessageID, string(p.Payload))
 }
 
-func (p *PublishPacket) Write(w io.Writer) error {
+func (p *PublishPacket) WriteTo(w io.Writer) (n int64, err error) {
 	var body bytes.Buffer
-	var err error
-
+	// var err error
 	body.Write(encodeString(p.TopicName))
 	if p.Qos > 0 {
 		body.Write(encodeUint16(p.MessageID))
@@ -47,9 +46,7 @@ func (p *PublishPacket) Write(w io.Writer) error {
 	packet := p.FixedHeader.pack()
 	packet.Write(body.Bytes())
 	packet.Write(p.Payload)
-	_, err = w.Write(packet.Bytes())
-
-	return err
+	return packet.WriteTo(w)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

@@ -52,9 +52,9 @@ func (c *ConnectPacket) String() string {
 	return fmt.Sprintf("%s protocolversion: %d protocolname: %s cleansession: %t willflag: %t WillQos: %d WillRetain: %t Usernameflag: %t Passwordflag: %t keepalive: %d clientId: %s willtopic: %s willmessage: %s Username: %s Password: %s", c.FixedHeader, c.ProtocolVersion, c.ProtocolName, c.CleanSession, c.WillFlag, c.WillQos, c.WillRetain, c.UsernameFlag, c.PasswordFlag, c.Keepalive, c.ClientIdentifier, c.WillTopic, c.WillMessage, c.Username, password)
 }
 
-func (c *ConnectPacket) Write(w io.Writer) error {
+func (c *ConnectPacket) WriteTo(w io.Writer) (n int64, err error) {
 	var body bytes.Buffer
-	var err error
+	// var err error
 
 	body.Write(encodeString(c.ProtocolName))
 	body.WriteByte(c.ProtocolVersion)
@@ -74,9 +74,7 @@ func (c *ConnectPacket) Write(w io.Writer) error {
 	c.FixedHeader.RemainingLength = body.Len()
 	packet := c.FixedHeader.pack()
 	packet.Write(body.Bytes())
-	_, err = packet.WriteTo(w)
-
-	return err
+	return packet.WriteTo(w)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

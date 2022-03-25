@@ -30,11 +30,9 @@ func (pr *PingrespPacket) String() string {
 	return pr.FixedHeader.String()
 }
 
-func (pr *PingrespPacket) Write(w io.Writer) error {
+func (pr *PingrespPacket) WriteTo(w io.Writer) (n int64, err error) {
 	packet := pr.FixedHeader.pack()
-	_, err := packet.WriteTo(w)
-
-	return err
+	return packet.WriteTo(w)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

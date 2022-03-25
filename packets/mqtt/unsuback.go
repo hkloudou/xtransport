@@ -32,14 +32,11 @@ func (ua *UnsubackPacket) String() string {
 	return fmt.Sprintf("%s MessageID: %d", ua.FixedHeader, ua.MessageID)
 }
 
-func (ua *UnsubackPacket) Write(w io.Writer) error {
-	var err error
+func (ua *UnsubackPacket) WriteTo(w io.Writer) (n int64, err error) {
 	ua.FixedHeader.RemainingLength = 2
 	packet := ua.FixedHeader.pack()
 	packet.Write(encodeUint16(ua.MessageID))
-	_, err = packet.WriteTo(w)
-
-	return err
+	return packet.WriteTo(w)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed
