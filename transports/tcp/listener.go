@@ -8,20 +8,20 @@ import (
 	"github.com/hkloudou/xtransport"
 )
 
-type listener[T xtransport.Packet] struct {
+type listener struct {
 	listener net.Listener
 	timeout  time.Duration
 }
 
-func (t *listener[T]) Addr() string {
+func (t *listener) Addr() string {
 	return t.listener.Addr().String()
 }
 
-func (t *listener[T]) Close() error {
+func (t *listener) Close() error {
 	return t.listener.Close()
 }
 
-func (t *listener[T]) Accept(fn func(xtransport.Socket[T])) error {
+func (t *listener) Accept(fn func(xtransport.Socket)) error {
 	var tempDelay time.Duration
 
 	for {
@@ -45,7 +45,7 @@ func (t *listener[T]) Accept(fn func(xtransport.Socket[T])) error {
 		tempDelay = 0
 
 		// encBuf := bufio.NewWriter(c)
-		sock := &tcpSocket[T]{
+		sock := &tcpSocket{
 			timeout: t.timeout,
 			conn:    c,
 			// encBuf:  bufio.NewWriter(c),

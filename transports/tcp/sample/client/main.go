@@ -8,16 +8,19 @@ import (
 	tcp "github.com/hkloudou/xtransport/transports/tcp"
 )
 
+var _ io.WriterTo = &p{}
+
 type p struct {
 	data []byte
 }
 
-func (m *p) Write(w io.Writer) error {
-	_, err := w.Write(m.data)
-	return err
+func (m *p) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(m.data)
+	return int64(n), err
 }
+
 func main() {
-	tran := tcp.NewTransport[*p]("tcp")
+	tran := tcp.NewTransport("tcp")
 	c, err := tran.Dial("127.0.0.1:10001")
 	if err != nil {
 		panic(err)

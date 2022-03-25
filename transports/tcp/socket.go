@@ -1,9 +1,7 @@
 package tcp
 
 import (
-	"bytes"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -35,7 +33,7 @@ func (t *tcpSocket) Remote() string {
 	return t.conn.RemoteAddr().String()
 }
 
-func (t *tcpSocket) Recv(fc func(r io.Reader) (T, error)) (T, error) {
+func (t *tcpSocket) Recv(fc func(r io.Reader) (interface{}, error)) (interface{}, error) {
 	defer func() {
 		if r := recover(); r != nil {
 			return
@@ -71,15 +69,17 @@ func (t *tcpSocket) Send(m interface{}) error {
 			return
 		}
 	}()
-	var buf bytes.Buffer
-	if err := m.Write(&buf); err != nil {
-		return err
-	}
-	if buf.Len() == 0 {
-		return fmt.Errorf("empty packet send")
-	}
-	// t.conn.
-	return m.Write(t.conn)
+	_, err := xtransport.Write(t.conn, m)
+	return err
+	// var buf bytes.Buffer
+	// if err := m.Write(&buf); err != nil {
+	// 	return err
+	// }
+	// if buf.Len() == 0 {
+	// 	return fmt.Errorf("empty packet send")
+	// }
+	// // t.conn.
+	// return m.Write(t.conn)
 	// err := m.Write(t.encBuf)
 	// if err != nil {
 	// 	return err
@@ -87,11 +87,11 @@ func (t *tcpSocket) Send(m interface{}) error {
 	// return t.encBuf.Flush()
 }
 
-func (t *tcpSocket[T]) SetTimeOut(duration time.Duration) {
+func (t *tcpSocket) SetTimeOut(duration time.Duration) {
 	t.timeout = duration
 }
 
-func (t *tcpSocket[T]) Close() error {
+func (t *tcpSocket) Close() error {
 	if t.closed {
 		return nil
 	}

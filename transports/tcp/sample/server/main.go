@@ -9,22 +9,24 @@ import (
 	tcp "github.com/hkloudou/xtransport/transports/tcp"
 )
 
+var _ io.WriterTo = &p{}
+
 type p struct {
 	data []byte
 }
 
-func (m *p) Write(w io.Writer) error {
-	_, err := w.Write(m.data)
-	return err
+func (m *p) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(m.data)
+	return int64(n), err
 }
 
 func main() {
-	tran := tcp.NewTransport[*p]("tcp", xtransport.Secure(true), xtransport.TLSConfig(cfg))
+	tran := tcp.NewTransport("tcp", xtransport.Secure(true), xtransport.TLSConfig(cfg))
 	l, err := tran.Listen(":8883")
 	if err != nil {
 		panic(err)
 	}
-	l.Accept(func(sock xtransport.Socket[*p]) {
+	l.Accept(func(sock xtransport.Socket) {
 		log.Println("Accept", sock.Remote())
 		defer func() {
 			// if r := recover(); r != nil {
@@ -34,7 +36,7 @@ func main() {
 			log.Println("sock", sock.Remote(), "closed")
 		}()
 		for {
-			request, err := sock.Recv(func(r io.Reader) (*p, error) {
+			request, err := sock.Recv(func(r io.Reader) (interface{}, error) {
 				// time.Sleep(5 * time.Second)
 				b := make([]byte, 1)
 				log.Println("sn", sock.ConnectionState().ServerName)
@@ -51,7 +53,7 @@ func main() {
 				}
 				return &p{data: b}, nil
 			})
-			log.Println("request.data", request.data)
+			log.Println("request.data", request.(*p).data)
 			if err != nil {
 				break
 			}

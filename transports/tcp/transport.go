@@ -86,7 +86,7 @@ func (t *transport) Options() xtransport.Options {
 	return t.opts
 }
 
-func NewTransport[T xtransport.Packet](network string, opts ...xtransport.Option) xtransport.Transport {
+func NewTransport(network string, opts ...xtransport.Option) xtransport.Transport {
 	var options xtransport.Options
 	for _, o := range opts {
 		o(&options)
