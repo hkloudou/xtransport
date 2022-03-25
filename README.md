@@ -5,7 +5,8 @@ xtransport is a easy way to provider tcp/ws transport
 ``` sh
 go get -u github.com/hkloudou/xtransport
 ```
-
+## other langurage
+- flutter https://github.com/hkloudou/flutter_xtransport
 
 ## Quick Start
 ``` go
