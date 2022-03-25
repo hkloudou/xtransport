@@ -12,22 +12,22 @@ import (
 	"github.com/hkloudou/xtransport"
 )
 
-type wsTransportListener[T xtransport.Packet] struct {
+type wsTransportListener struct {
 	opts    xtransport.Options
 	addr    string
 	timeout time.Duration
 	pattern string
 }
 
-func (t *wsTransportListener[T]) Addr() string {
+func (t *wsTransportListener) Addr() string {
 	return t.addr
 }
 
-func (t *wsTransportListener[T]) Close() error {
+func (t *wsTransportListener) Close() error {
 	return fmt.Errorf("err close")
 }
 
-func (t *wsTransportListener[T]) Accept(fn func(xtransport.Socket[T])) error {
+func (t *wsTransportListener) Accept(fn func(xtransport.Socket)) error {
 	if t.opts.Secure {
 		if t.opts.TLSConfig == nil {
 			return fmt.Errorf("[ws] no tlsConfig")
@@ -52,7 +52,7 @@ func (t *wsTransportListener[T]) Accept(fn func(xtransport.Socket[T])) error {
 			return
 		}
 		pr, pw := io.Pipe()
-		sock := &socket[T]{
+		sock := &socket{
 			conn:       c,
 			Context:    xtransport.NewSession(),
 			timeout:    t.timeout,

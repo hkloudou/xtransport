@@ -8,24 +8,26 @@ import (
 	transport "github.com/hkloudou/xtransport/transports/ws"
 )
 
+var _ io.WriterTo = &p{}
+
 type p struct {
 	data []byte
 }
 
-func (m *p) Write(w io.Writer) error {
-	_, err := w.Write(m.data)
-	return err
+func (m *p) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(m.data)
+	return int64(n), err
 }
 
 func main() {
 	port := ":11444"
-	tran := transport.NewTransport[*p]("/ws", xtransport.Secure(true), xtransport.TLSConfig(cfg))
+	tran := transport.NewTransport("/ws", xtransport.Secure(true), xtransport.TLSConfig(cfg))
 	l, err := tran.Listen(port)
 	if err != nil {
 		panic(err)
 	}
 	log.Println(tran.String(), "listen on", port)
-	l.Accept(func(sock xtransport.Socket[*p]) {
+	l.Accept(func(sock xtransport.Socket) {
 		log.Println("sock", sock.Remote(), "connected")
 		state := sock.ConnectionState()
 		if state != nil {
@@ -42,7 +44,7 @@ func main() {
 			log.Println("sock", sock.Remote(), "closed")
 		}()
 		for {
-			request, err := sock.Recv(func(r io.Reader) (*p, error) {
+			request, err := sock.Recv(func(r io.Reader) (interface{}, error) {
 				// bt, err := ioutil.ReadAll(r)
 				var bt = make([]byte, 3)
 				_, err := io.ReadFull(r, bt)
@@ -57,12 +59,12 @@ func main() {
 			} else if request == nil {
 				continue
 			}
-
-			log.Println("request.data", len(request.data))
-			if len(request.data) > 10 {
-				log.Println(request.data[0:10], "...")
+			// request := request.(*p)
+			log.Println("request.data", len(request.(*p).data))
+			if len(request.(*p).data) > 10 {
+				log.Println(request.(*p).data[0:10], "...")
 			} else {
-				log.Println(request.data)
+				log.Println(request.(*p).data)
 			}
 			if err != nil {
 				break
