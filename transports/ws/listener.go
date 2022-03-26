@@ -3,7 +3,6 @@ package ws
 import (
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -33,20 +32,16 @@ func (t *wsTransportListener) Accept(fn func(xtransport.Socket)) error {
 			return fmt.Errorf("[ws] no tlsConfig")
 		}
 	}
+
+	mux := http.NewServeMux()
 	serve := &http.Server{
 		Addr:      t.addr,
 		TLSConfig: t.opts.TLSConfig,
+		Handler:   mux,
 	}
+	// mux.h
 	// serve.Handler.ServeHTTP()
-	http.HandleFunc(t.pattern, func(w http.ResponseWriter, r *http.Request) {
-		log.Println(r.Host)
-		log.Println("r.TLS.ServerName", r.TLS.ServerName)
-		// log.Println("r.TLS.ServerName", r.TLS.PeerCertificates)
-		for _, v := range r.TLS.PeerCertificates {
-			log.Println("cert", v.Subject.CommonName)
-		}
-		// log.Println(r.)
-		// state :=
+	mux.HandleFunc(t.pattern, func(w http.ResponseWriter, r *http.Request) {
 		c, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
 			return
