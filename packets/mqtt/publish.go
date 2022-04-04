@@ -35,6 +35,15 @@ func (p *PublishPacket) String() string {
 	return fmt.Sprintf("%s topicName: %s MessageID: %d payload: %s", p.FixedHeader, p.TopicName, p.MessageID, string(p.Payload))
 }
 
+func (p *PublishPacket) Validate() error {
+	return ValidatePattern(p.TopicName)
+}
+
+func (s *PublishPacket) StrictValidate() error {
+
+	return nil
+}
+
 func (p *PublishPacket) WriteTo(w io.Writer) (n int64, err error) {
 	var body bytes.Buffer
 	// var err error

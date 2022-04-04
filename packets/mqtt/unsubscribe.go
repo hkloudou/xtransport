@@ -30,6 +30,27 @@ type UnsubscribePacket struct {
 	Topics    []string
 }
 
+func (s *UnsubscribePacket) Validate() error {
+	if len(s.Topics) == 0 {
+		return NewPacketError("3.10.3-2", "payload are zero")
+	}
+	return nil
+}
+
+func (s *UnsubscribePacket) StrictValidate() error {
+	// Bits 3,2,1 and 0 of the fixed header of the SUBSCRIBE Control Packet are reserved and MUST be set to 0,0,1 and 0 respectively.
+	// [MQTT-3.10.1-1].
+	if s.FixedHeader.Dup {
+		return NewPacketError("3.10.1-1", "fixedhead dup should = false") //0
+	}
+	if s.FixedHeader.Qos != 1 {
+		return NewPacketError("3.10.1-1", "fixedhead qos should = 1") //01
+	}
+	if s.FixedHeader.Retain {
+		return NewPacketError("3.10.1-1", "fixedhead retain should = false") //0
+	}
+	return nil
+}
 func (u *UnsubscribePacket) String() string {
 	return fmt.Sprintf("%s MessageID: %d", u.FixedHeader, u.MessageID)
 }
