@@ -40,7 +40,6 @@ func main() {
 				// time.Sleep(5 * time.Second)
 				b := make([]byte, 1)
 				log.Println("sn", sock.ConnectionState().ServerName)
-
 				_, err := io.ReadFull(r, b)
 
 				// bt2, err2 := io.ReadFull(r)

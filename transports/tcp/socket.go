@@ -40,7 +40,11 @@ func (t *tcpSocket) Recv(fc func(r io.Reader) (interface{}, error)) (interface{}
 		}
 	}()
 	if t.timeout > time.Duration(0) {
-		t.conn.SetDeadline(time.Now().Add(t.timeout))
+		// log.Println("setRecv deadline", t.timeout)
+		err := t.conn.SetDeadline(time.Now().Add(t.timeout))
+		if err != nil {
+			return nil, err
+		}
 	}
 	return fc(t.conn)
 }
@@ -69,7 +73,14 @@ func (t *tcpSocket) Send(m interface{}) error {
 			return
 		}
 	}()
+
 	_, err := xtransport.Write(t.conn, m)
+	if err == nil {
+		// log.Println("setSend deadline", t.timeout)
+		if t.timeout > time.Duration(0) {
+			err = t.conn.SetDeadline(time.Now().Add(t.timeout))
+		}
+	}
 	return err
 	// var buf bytes.Buffer
 	// if err := m.Write(&buf); err != nil {
