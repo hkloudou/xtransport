@@ -2,6 +2,7 @@ package ws
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -25,7 +26,14 @@ func (t *wsTransportListener) Addr() string {
 }
 
 func (t *wsTransportListener) Close() error {
-	return t.server.Close()
+	err := t.server.Close()
+	// The net.Listener is only registered with the server once Accept
+	// calls Serve; close it directly so a pre-Accept Close still
+	// releases the port. A double close after Serve is harmless.
+	if cerr := t.ln.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) && err == nil {
+		err = cerr
+	}
+	return err
 }
 
 func (t *wsTransportListener) serveWS(w http.ResponseWriter, r *http.Request) {

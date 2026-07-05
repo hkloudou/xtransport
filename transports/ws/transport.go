@@ -77,7 +77,10 @@ func (t *transport) Listen(addr string, opts ...xtransport.ListenOption) (xtrans
 	if err != nil {
 		return nil, err
 	}
-	if t.opts.Secure {
+	// Mirror Dial: providing a TLSConfig implies TLS even without the
+	// Secure flag, so a client and server built from the same options
+	// agree on the scheme.
+	if t.opts.Secure || t.opts.TLSConfig != nil {
 		if t.opts.TLSConfig == nil {
 			ln.Close()
 			return nil, fmt.Errorf("[ws] no tlsConfig")
