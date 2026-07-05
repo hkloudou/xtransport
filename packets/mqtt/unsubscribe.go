@@ -17,7 +17,6 @@
 package mqtt
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 )
@@ -56,15 +55,15 @@ func (u *UnsubscribePacket) String() string {
 }
 
 func (u *UnsubscribePacket) WriteTo(w io.Writer) (n int64, err error) {
-	var body bytes.Buffer
-	body.Write(encodeUint16(u.MessageID))
+	body := newBody()
+	defer putBody(body)
+	writeUint16(body, u.MessageID)
 	for _, topic := range u.Topics {
-		body.Write(encodeString(topic))
+		if err := writeString(body, topic); err != nil {
+			return 0, err
+		}
 	}
-	u.FixedHeader.RemainingLength = body.Len()
-	packet := u.FixedHeader.pack()
-	packet.Write(body.Bytes())
-	return packet.WriteTo(w)
+	return writePacket(w, &u.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed
@@ -76,11 +75,17 @@ func (u *UnsubscribePacket) Unpack(b io.Reader) error {
 		return err
 	}
 
-	for topic, err := decodeString(b); err == nil && topic != ""; topic, err = decodeString(b) {
+	payloadLength := u.FixedHeader.RemainingLength - 2
+	for payloadLength > 0 {
+		topic, err := decodeString(b)
+		if err != nil {
+			return err
+		}
 		u.Topics = append(u.Topics, topic)
+		payloadLength -= 2 + len(topic)
 	}
 
-	return err
+	return nil
 }
 
 // Details returns a Details struct containing the Qos and

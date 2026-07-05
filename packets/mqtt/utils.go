@@ -20,19 +20,33 @@ import (
 // - A TopicFilter may contain any number of + (single-level) wildcards.
 // - A TopicFilter with a # will match the absence of a level
 //     Example:  a subscription to "foo/#" will match messages published to "foo".
+
+// ValidatePattern checks that pattern is a valid MQTT topic filter:
+// 1-65535 bytes, '#' only as the final entire level [MQTT-4.7.1-2] and
+// '+' only as an entire level [MQTT-4.7.1-3].
 func ValidatePattern(pattern string) error {
 	if len(pattern) == 0 {
 		return ErrInvalidTopicEmptyString
 	}
+	if len(pattern) > maxFieldLength {
+		return ErrInvalidTopicTooLong
+	}
 	levels := strings.Split(pattern, "/")
 	for i, level := range levels {
-		if level == "#" && i != len(levels)-1 {
-			return ErrInvalidTopicMultilevel
+		if strings.Contains(level, "#") {
+			if level != "#" || i != len(levels)-1 {
+				return ErrInvalidTopicMultilevel
+			}
+		}
+		if strings.Contains(level, "+") && level != "+" {
+			return ErrInvalidTopicSinglelevel
 		}
 	}
 	return nil
 }
 
+// ValidateTopic checks that topic is a valid MQTT topic name: a valid
+// pattern that contains no wildcard characters [MQTT-3.3.2-2].
 func ValidateTopic(topic string) error {
 	if strings.Contains(topic, "#") || strings.Contains(topic, "+") {
 		return ErrInvalidWildcardTopic

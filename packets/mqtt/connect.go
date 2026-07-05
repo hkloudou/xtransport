@@ -17,7 +17,6 @@
 package mqtt
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 )
@@ -53,28 +52,37 @@ func (c *ConnectPacket) String() string {
 }
 
 func (c *ConnectPacket) WriteTo(w io.Writer) (n int64, err error) {
-	var body bytes.Buffer
-	// var err error
+	body := newBody()
+	defer putBody(body)
 
-	body.Write(encodeString(c.ProtocolName))
+	if err := writeString(body, c.ProtocolName); err != nil {
+		return 0, err
+	}
 	body.WriteByte(c.ProtocolVersion)
 	body.WriteByte(boolToByte(c.CleanSession)<<1 | boolToByte(c.WillFlag)<<2 | c.WillQos<<3 | boolToByte(c.WillRetain)<<5 | boolToByte(c.PasswordFlag)<<6 | boolToByte(c.UsernameFlag)<<7)
-	body.Write(encodeUint16(c.Keepalive))
-	body.Write(encodeString(c.ClientIdentifier))
+	writeUint16(body, c.Keepalive)
+	if err := writeString(body, c.ClientIdentifier); err != nil {
+		return 0, err
+	}
 	if c.WillFlag {
-		body.Write(encodeString(c.WillTopic))
-		body.Write(encodeBytes(c.WillMessage))
+		if err := writeString(body, c.WillTopic); err != nil {
+			return 0, err
+		}
+		if err := writeBytes(body, c.WillMessage); err != nil {
+			return 0, err
+		}
 	}
 	if c.UsernameFlag {
-		body.Write(encodeString(c.Username))
+		if err := writeString(body, c.Username); err != nil {
+			return 0, err
+		}
 	}
 	if c.PasswordFlag {
-		body.Write(encodeBytes(c.Password))
+		if err := writeBytes(body, c.Password); err != nil {
+			return 0, err
+		}
 	}
-	c.FixedHeader.RemainingLength = body.Len()
-	packet := c.FixedHeader.pack()
-	packet.Write(body.Bytes())
-	return packet.WriteTo(w)
+	return writePacket(w, &c.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

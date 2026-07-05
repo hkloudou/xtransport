@@ -17,7 +17,6 @@
 package mqtt
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 )
@@ -35,27 +34,28 @@ func (p *PublishPacket) String() string {
 	return fmt.Sprintf("%s topicName: %s MessageID: %d payload: %s", p.FixedHeader, p.TopicName, p.MessageID, string(p.Payload))
 }
 
+// Validate checks that the topic name is a valid MQTT topic name:
+// non-empty and free of the '#' and '+' wildcards, which are only
+// allowed in topic filters [MQTT-3.3.2-2].
 func (p *PublishPacket) Validate() error {
-	return ValidatePattern(p.TopicName)
+	return ValidateTopic(p.TopicName)
 }
 
 func (s *PublishPacket) StrictValidate() error {
-
-	return nil
+	return s.Validate()
 }
 
 func (p *PublishPacket) WriteTo(w io.Writer) (n int64, err error) {
-	var body bytes.Buffer
-	// var err error
-	body.Write(encodeString(p.TopicName))
-	if p.Qos > 0 {
-		body.Write(encodeUint16(p.MessageID))
+	body := newBody()
+	defer putBody(body)
+	if err := writeString(body, p.TopicName); err != nil {
+		return 0, err
 	}
-	p.FixedHeader.RemainingLength = body.Len() + len(p.Payload)
-	packet := p.FixedHeader.pack()
-	packet.Write(body.Bytes())
-	packet.Write(p.Payload)
-	return packet.WriteTo(w)
+	if p.Qos > 0 {
+		writeUint16(body, p.MessageID)
+	}
+	body.Write(p.Payload)
+	return writePacket(w, &p.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed
@@ -81,9 +81,11 @@ func (p *PublishPacket) Unpack(b io.Reader) error {
 		return fmt.Errorf("error unpacking publish, payload length < 0")
 	}
 	p.Payload = make([]byte, payloadLength)
-	_, err = b.Read(p.Payload)
+	if _, err := io.ReadFull(b, p.Payload); err != nil {
+		return err
+	}
 
-	return err
+	return nil
 }
 
 // Copy creates a new PublishPacket with the same topic and payload

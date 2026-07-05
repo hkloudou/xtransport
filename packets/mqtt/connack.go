@@ -17,7 +17,6 @@
 package mqtt
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 )
@@ -35,13 +34,11 @@ func (ca *ConnackPacket) String() string {
 }
 
 func (ca *ConnackPacket) WriteTo(w io.Writer) (n int64, err error) {
-	var body bytes.Buffer
+	body := newBody()
+	defer putBody(body)
 	body.WriteByte(boolToByte(ca.SessionPresent))
 	body.WriteByte(byte(ca.ReturnCode))
-	ca.FixedHeader.RemainingLength = 2
-	packet := ca.FixedHeader.pack()
-	packet.Write(body.Bytes())
-	return packet.WriteTo(w)
+	return writePacket(w, &ca.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed
