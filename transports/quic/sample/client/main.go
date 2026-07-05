@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"io"
 	"sync"
 
+	"github.com/hkloudou/xtransport"
 	quic "github.com/hkloudou/xtransport/transports/quic"
 )
 
@@ -18,8 +20,9 @@ func (m *p) WriteTo(w io.Writer) (int64, error) {
 	return int64(n), err
 }
 func main() {
-	tran := quic.NewTransport()
-	c, err := tran.Dial(":1234")
+	// The sample server uses a self signed certificate.
+	tran := quic.NewTransport(xtransport.TLSConfig(&tls.Config{InsecureSkipVerify: true}))
+	c, err := tran.Dial("127.0.0.1:1234")
 	if err != nil {
 		panic(err)
 	}
