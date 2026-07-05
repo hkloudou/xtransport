@@ -31,8 +31,9 @@ func (pr *PingrespPacket) String() string {
 }
 
 func (pr *PingrespPacket) WriteTo(w io.Writer) (n int64, err error) {
-	packet := pr.FixedHeader.pack()
-	return packet.WriteTo(w)
+	body := newBody()
+	defer putBody(body)
+	return writePacket(w, &pr.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

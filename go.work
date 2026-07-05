@@ -1,0 +1,9 @@
+go 1.24
+
+use (
+	.
+	./packets/mqtt
+	./transports/quic
+	./transports/tcp
+	./transports/ws
+)

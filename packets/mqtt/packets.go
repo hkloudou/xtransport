@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
 type ConnackReturnCode byte
@@ -30,7 +31,6 @@ type ConnackReturnCode byte
 // decoded MQTT packets, either from being read or before being
 // written
 type ControlPacket interface {
-	// Write(io.Writer) error
 	io.WriterTo
 	Unpack(io.Reader) error
 	String() string
@@ -73,6 +73,32 @@ const (
 	Pingreq     = 12
 	Pingresp    = 13
 	Disconnect  = 14
+)
+
+// MaxRemainingLength is the largest possible value of the remaining
+// length field of an MQTT 3.1.1 fixed header (268 435 455 bytes).
+const MaxRemainingLength = 268435455
+
+// maxFieldLength is the largest encodable length of an MQTT string or
+// bytes field (the length prefix is a two byte integer).
+const maxFieldLength = 65535
+
+var (
+	// ErrPacketTooLarge is returned when a packet's remaining length
+	// exceeds the limit given to ReadPacketLimit (or the protocol
+	// maximum for ReadPacket).
+	ErrPacketTooLarge = errors.New("mqtt: packet exceeds maximum remaining length")
+	// ErrMalformedRemainingLength is returned when the variable length
+	// encoding of the remaining length field is invalid.
+	ErrMalformedRemainingLength = errors.New("mqtt: malformed remaining length")
+	// ErrInvalidFixedHeaderFlags is returned when the reserved flag bits
+	// of the fixed header do not match the values required by the spec
+	// [MQTT-2.2.2-1].
+	ErrInvalidFixedHeaderFlags = errors.New("mqtt: invalid fixed header flags")
+	// ErrFieldTooLong is returned when writing a packet whose string or
+	// bytes field exceeds 65535 bytes and therefore cannot be length
+	// prefixed (it would previously be silently truncated).
+	ErrFieldTooLong = errors.New("mqtt: string or bytes field exceeds 65535 bytes")
 )
 
 // Below are the const definitions for error codes returned by
@@ -129,17 +155,29 @@ var ConnErrors = map[ConnackReturnCode]error{
 // representing the decoded MQTT packet and an error. One of these returns will
 // always be nil, a nil ControlPacket indicating an error occurred.
 func ReadPacket(r io.Reader) (ControlPacket, error) {
-	var fh FixedHeader
-	b := make([]byte, 1)
+	return ReadPacketLimit(r, MaxRemainingLength)
+}
 
-	_, err := io.ReadFull(r, b)
-	if err != nil {
+// ReadPacketLimit behaves like ReadPacket but rejects packets whose
+// remaining length exceeds maxRemainingLength with ErrPacketTooLarge,
+// bounding the memory a single (possibly malicious) peer can make the
+// reader allocate. A maxRemainingLength <= 0 means the protocol maximum.
+func ReadPacketLimit(r io.Reader, maxRemainingLength int) (ControlPacket, error) {
+	if maxRemainingLength <= 0 || maxRemainingLength > MaxRemainingLength {
+		maxRemainingLength = MaxRemainingLength
+	}
+	var fh FixedHeader
+	var b [1]byte
+
+	if _, err := io.ReadFull(r, b[:]); err != nil {
 		return nil, err
 	}
 
-	err = fh.unpack(b[0], r)
-	if err != nil {
+	if err := fh.unpack(b[0], r); err != nil {
 		return nil, err
+	}
+	if fh.RemainingLength > maxRemainingLength {
+		return nil, ErrPacketTooLarge
 	}
 
 	cp, err := NewControlPacketWithHeader(fh)
@@ -148,12 +186,8 @@ func ReadPacket(r io.Reader) (ControlPacket, error) {
 	}
 
 	packetBytes := make([]byte, fh.RemainingLength)
-	n, err := io.ReadFull(r, packetBytes)
-	if err != nil {
+	if _, err := io.ReadFull(r, packetBytes); err != nil {
 		return nil, err
-	}
-	if n != fh.RemainingLength {
-		return nil, errors.New("failed to read expected data")
 	}
 
 	err = cp.Unpack(bytes.NewBuffer(packetBytes))
@@ -262,19 +296,10 @@ func (fh FixedHeader) Type() byte {
 }
 
 func boolToByte(b bool) byte {
-	switch b {
-	case true:
+	if b {
 		return 1
-	default:
-		return 0
 	}
-}
-
-func (fh *FixedHeader) pack() bytes.Buffer {
-	var header bytes.Buffer
-	header.WriteByte(fh.MessageType<<4 | boolToByte(fh.Dup)<<3 | fh.Qos<<1 | boolToByte(fh.Retain))
-	header.Write(encodeLength(fh.RemainingLength))
-	return header
+	return 0
 }
 
 func (fh *FixedHeader) unpack(typeAndFlags byte, r io.Reader) error {
@@ -282,12 +307,33 @@ func (fh *FixedHeader) unpack(typeAndFlags byte, r io.Reader) error {
 	fh.Dup = (typeAndFlags>>3)&0x01 > 0
 	fh.Qos = (typeAndFlags >> 1) & 0x03
 	fh.Retain = typeAndFlags&0x01 > 0
-	if fh.MessageType < 1 || fh.MessageType > 14 {
+	if fh.MessageType < Connect || fh.MessageType > Disconnect {
 		// http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.pdf
-		// Where a flag bit is marked as “Reserved” in Table 2.2 -
-		// 244 Flag Bits, it is reserved for future use and MUST be set to the value listed in that table [MQTT-2.2.2-1]. If
-		// 245 invalid flags are received, the receiver MUST close the Network Connection
-		return fmt.Errorf(`Invalid mqtt flag(messagetype)`)
+		// Where a flag bit is marked as "Reserved" in Table 2.2 -
+		// Flag Bits, it is reserved for future use and MUST be set to the value listed in that table [MQTT-2.2.2-1]. If
+		// invalid flags are received, the receiver MUST close the Network Connection
+		return fmt.Errorf(`invalid mqtt flag(messagetype)`)
+	}
+	// [MQTT-2.2.2-1] / [MQTT-2.2.2-2]: reserved flag bits must hold the
+	// values from table 2.2; a PUBLISH packet must not claim QoS 3
+	// [MQTT-3.3.1-4].
+	flags := typeAndFlags & 0x0F
+	switch fh.MessageType {
+	case Publish:
+		if fh.Qos == 3 {
+			return fmt.Errorf("%w: publish with qos 3", ErrInvalidFixedHeaderFlags)
+		}
+	case Pubrel, Subscribe, Unsubscribe:
+		// MQTT 3.1.1 fixes these flags at 0010, but MQTT 3.1 sets the
+		// DUP bit on retransmissions, so the DUP bit is tolerated here;
+		// StrictValidate enforces the 3.1.1 rule where wanted.
+		if flags&^0x08 != 0x02 {
+			return fmt.Errorf("%w: %s flags 0x%x", ErrInvalidFixedHeaderFlags, PacketNames[fh.MessageType], flags)
+		}
+	default:
+		if flags != 0x00 {
+			return fmt.Errorf("%w: %s flags 0x%x", ErrInvalidFixedHeaderFlags, PacketNames[fh.MessageType], flags)
+		}
 	}
 	var err error
 	fh.RemainingLength, err = decodeLength(r)
@@ -295,22 +341,22 @@ func (fh *FixedHeader) unpack(typeAndFlags byte, r io.Reader) error {
 }
 
 func decodeByte(b io.Reader) (byte, error) {
-	num := make([]byte, 1)
-	_, err := b.Read(num)
-	if err != nil {
+	if br, ok := b.(io.ByteReader); ok {
+		return br.ReadByte()
+	}
+	var num [1]byte
+	if _, err := io.ReadFull(b, num[:]); err != nil {
 		return 0, err
 	}
-
 	return num[0], nil
 }
 
 func decodeUint16(b io.Reader) (uint16, error) {
-	num := make([]byte, 2)
-	_, err := b.Read(num)
-	if err != nil {
+	var num [2]byte
+	if _, err := io.ReadFull(b, num[:]); err != nil {
 		return 0, err
 	}
-	return binary.BigEndian.Uint16(num), nil
+	return binary.BigEndian.Uint16(num[:]), nil
 }
 
 func encodeUint16(num uint16) []byte {
@@ -335,8 +381,7 @@ func decodeBytes(b io.Reader) ([]byte, error) {
 	}
 
 	field := make([]byte, fieldLength)
-	_, err = b.Read(field)
-	if err != nil {
+	if _, err := io.ReadFull(b, field); err != nil {
 		return nil, err
 	}
 
@@ -347,6 +392,34 @@ func encodeBytes(field []byte) []byte {
 	fieldLength := make([]byte, 2)
 	binary.BigEndian.PutUint16(fieldLength, uint16(len(field)))
 	return append(fieldLength, field...)
+}
+
+// writeUint16 appends the big endian encoding of num to buf.
+func writeUint16(buf *bytes.Buffer, num uint16) {
+	buf.WriteByte(byte(num >> 8))
+	buf.WriteByte(byte(num))
+}
+
+// writeString appends the length prefixed string to buf; it fails with
+// ErrFieldTooLong instead of silently truncating oversize fields.
+func writeString(buf *bytes.Buffer, field string) error {
+	if len(field) > maxFieldLength {
+		return fmt.Errorf("%w: %d bytes", ErrFieldTooLong, len(field))
+	}
+	writeUint16(buf, uint16(len(field)))
+	buf.WriteString(field)
+	return nil
+}
+
+// writeBytes appends the length prefixed byte slice to buf; it fails with
+// ErrFieldTooLong instead of silently truncating oversize fields.
+func writeBytes(buf *bytes.Buffer, field []byte) error {
+	if len(field) > maxFieldLength {
+		return fmt.Errorf("%w: %d bytes", ErrFieldTooLong, len(field))
+	}
+	writeUint16(buf, uint16(len(field)))
+	buf.Write(field)
+	return nil
 }
 
 func encodeLength(length int) []byte {
@@ -368,10 +441,14 @@ func encodeLength(length int) []byte {
 func decodeLength(r io.Reader) (int, error) {
 	var rLength uint32
 	var multiplier uint32
-	b := make([]byte, 1)
-	for multiplier < 27 { // fix: Infinite '(digit & 128) == 1' will cause the dead loop
-		_, err := io.ReadFull(r, b)
-		if err != nil {
+	var b [1]byte
+	for {
+		// The remaining length field is at most 4 bytes [MQTT-2.2.3];
+		// a 4th byte with the continuation bit set is malformed.
+		if multiplier > 21 {
+			return 0, ErrMalformedRemainingLength
+		}
+		if _, err := io.ReadFull(r, b[:]); err != nil {
 			return 0, err
 		}
 
@@ -383,4 +460,68 @@ func decodeLength(r io.Reader) (int, error) {
 		multiplier += 7
 	}
 	return int(rLength), nil
+}
+
+// fixedHeaderReserve is the space reserved at the front of a body buffer
+// for the fixed header: 1 byte for type and flags plus up to 4 bytes for
+// the remaining length.
+const fixedHeaderReserve = 5
+
+var headerPad [fixedHeaderReserve]byte
+
+var bodyPool = sync.Pool{
+	New: func() interface{} { return new(bytes.Buffer) },
+}
+
+// newBody returns a pooled buffer with fixedHeaderReserve padding bytes
+// already written, so the fixed header can later be encoded in place and
+// the whole packet issued as a single Write.
+func newBody() *bytes.Buffer {
+	buf := bodyPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	buf.Write(headerPad[:])
+	return buf
+}
+
+func putBody(buf *bytes.Buffer) {
+	// Do not let one huge payload pin a large backing array in the pool.
+	if buf.Cap() > 64*1024 {
+		return
+	}
+	bodyPool.Put(buf)
+}
+
+// writePacket encodes fh into the reserved space in front of body and
+// writes the complete packet with a single Write call. body must have
+// been obtained from newBody.
+func writePacket(w io.Writer, fh *FixedHeader, body *bytes.Buffer) (int64, error) {
+	remaining := body.Len() - fixedHeaderReserve
+	if remaining > MaxRemainingLength {
+		return 0, ErrPacketTooLarge
+	}
+	fh.RemainingLength = remaining
+
+	var enc [4]byte
+	n := 0
+	l := remaining
+	for {
+		digit := byte(l % 128)
+		l /= 128
+		if l > 0 {
+			digit |= 0x80
+		}
+		enc[n] = digit
+		n++
+		if l == 0 {
+			break
+		}
+	}
+
+	buf := body.Bytes()
+	start := fixedHeaderReserve - 1 - n
+	buf[start] = fh.MessageType<<4 | boolToByte(fh.Dup)<<3 | fh.Qos<<1 | boolToByte(fh.Retain)
+	copy(buf[start+1:], enc[:n])
+
+	written, err := w.Write(buf[start:])
+	return int64(written), err
 }

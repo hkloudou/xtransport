@@ -1,7 +1,6 @@
 package tcp
 
 import (
-	"bufio"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -11,10 +10,8 @@ import (
 )
 
 type transport struct {
-	opts     xtransport.Options
-	encBuf   *bufio.Writer
-	listener net.Listener
-	network  string
+	opts    xtransport.Options
+	network string
 }
 
 func (t *transport) Dial(addr string, opts ...xtransport.DialOption) (xtransport.Client, error) {
@@ -29,7 +26,6 @@ func (t *transport) Dial(addr string, opts ...xtransport.DialOption) (xtransport
 	var conn net.Conn
 	var err error
 
-	// TODO: support dial option here rather than using internal config
 	if t.opts.Secure || t.opts.TLSConfig != nil {
 		config := t.opts.TLSConfig
 		if config == nil {
@@ -46,12 +42,7 @@ func (t *transport) Dial(addr string, opts ...xtransport.DialOption) (xtransport
 		return nil, err
 	}
 
-	return &tcpSocket{
-		timeout: t.opts.Timeout,
-		conn:    conn,
-		// encBuf:  bufio.NewWriter(c),
-		Context: xtransport.NewSession(),
-	}, nil
+	return newSocket(conn, t.opts.Timeout), nil
 }
 
 func (t *transport) Listen(addr string, opts ...xtransport.ListenOption) (xtransport.Listener, error) {
@@ -82,6 +73,7 @@ func (t *transport) Listen(addr string, opts ...xtransport.ListenOption) (xtrans
 func (t *transport) String() string {
 	return t.network
 }
+
 func (t *transport) Options() xtransport.Options {
 	return t.opts
 }

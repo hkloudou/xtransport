@@ -13,18 +13,28 @@ var ErrInvalidTopicEmptyString = errors.New("invalid Topic; empty string")
 
 // ErrInvalidTopicMultilevel is the error returned when a topic string
 // is passed in that has the multi level wildcard in any position but
-// the last
-var ErrInvalidTopicMultilevel = errors.New("invalid Topic; multi-level wildcard must be last level")
+// the last, or embedded within a level
+var ErrInvalidTopicMultilevel = errors.New("invalid Topic; multi-level wildcard must occupy the entire last level")
 
-type packetError struct {
+// ErrInvalidTopicSinglelevel is the error returned when a topic string
+// contains a single level wildcard that does not occupy an entire level
+var ErrInvalidTopicSinglelevel = errors.New("invalid Topic; single-level wildcard must occupy an entire level")
+
+// ErrInvalidTopicTooLong is the error returned when a topic string
+// exceeds the 65535 byte maximum
+var ErrInvalidTopicTooLong = errors.New("invalid Topic; longer than 65535 bytes")
+
+// PacketError describes a protocol violation detected while validating
+// an MQTT packet, tagged with the spec clause that it violates.
+type PacketError struct {
 	Code string
 	Desc string
 }
 
-func (m packetError) Error() string {
+func (m *PacketError) Error() string {
 	return fmt.Sprintf("mqtt: [%s] %s", m.Code, m.Desc)
 }
 
-func NewPacketError(code, desc string) *packetError {
-	return &packetError{Code: code, Desc: desc}
+func NewPacketError(code, desc string) *PacketError {
+	return &PacketError{Code: code, Desc: desc}
 }

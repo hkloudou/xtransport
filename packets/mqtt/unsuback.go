@@ -33,10 +33,10 @@ func (ua *UnsubackPacket) String() string {
 }
 
 func (ua *UnsubackPacket) WriteTo(w io.Writer) (n int64, err error) {
-	ua.FixedHeader.RemainingLength = 2
-	packet := ua.FixedHeader.pack()
-	packet.Write(encodeUint16(ua.MessageID))
-	return packet.WriteTo(w)
+	body := newBody()
+	defer putBody(body)
+	writeUint16(body, ua.MessageID)
+	return writePacket(w, &ua.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

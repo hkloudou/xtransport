@@ -33,10 +33,10 @@ func (pc *PubcompPacket) String() string {
 }
 
 func (pc *PubcompPacket) WriteTo(w io.Writer) (n int64, err error) {
-	pc.FixedHeader.RemainingLength = 2
-	packet := pc.FixedHeader.pack()
-	packet.Write(encodeUint16(pc.MessageID))
-	return packet.WriteTo(w)
+	body := newBody()
+	defer putBody(body)
+	writeUint16(body, pc.MessageID)
+	return writePacket(w, &pc.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

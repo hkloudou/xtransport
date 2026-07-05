@@ -17,7 +17,6 @@
 package mqtt
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 )
@@ -79,16 +78,19 @@ func (s *SubscribePacket) StrictValidate() error {
 }
 
 func (s *SubscribePacket) WriteTo(w io.Writer) (n int64, err error) {
-	var body bytes.Buffer
-	body.Write(encodeUint16(s.MessageID))
+	if len(s.Topics) != len(s.Qoss) {
+		return 0, NewPacketError("3.8.3-4", "topics and qoss are not paired")
+	}
+	body := newBody()
+	defer putBody(body)
+	writeUint16(body, s.MessageID)
 	for i, topic := range s.Topics {
-		body.Write(encodeString(topic))
+		if err := writeString(body, topic); err != nil {
+			return 0, err
+		}
 		body.WriteByte(s.Qoss[i])
 	}
-	s.FixedHeader.RemainingLength = body.Len()
-	packet := s.FixedHeader.pack()
-	packet.Write(body.Bytes())
-	return packet.WriteTo(w)
+	return writePacket(w, &s.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

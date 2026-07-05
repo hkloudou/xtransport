@@ -35,13 +35,11 @@ func (sa *SubackPacket) String() string {
 }
 
 func (sa *SubackPacket) WriteTo(w io.Writer) (n int64, err error) {
-	var body bytes.Buffer
-	body.Write(encodeUint16(sa.MessageID))
+	body := newBody()
+	defer putBody(body)
+	writeUint16(body, sa.MessageID)
 	body.Write(sa.ReturnCodes)
-	sa.FixedHeader.RemainingLength = body.Len()
-	packet := sa.FixedHeader.pack()
-	packet.Write(body.Bytes())
-	return packet.WriteTo(w)
+	return writePacket(w, &sa.FixedHeader, body)
 }
 
 // Unpack decodes the details of a ControlPacket after the fixed

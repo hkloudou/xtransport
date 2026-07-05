@@ -33,10 +33,10 @@ func (pa *PubackPacket) String() string {
 }
 
 func (pa *PubackPacket) WriteTo(w io.Writer) (n int64, err error) {
-	pa.FixedHeader.RemainingLength = 2
-	packet := pa.FixedHeader.pack()
-	packet.Write(encodeUint16(pa.MessageID))
-	return packet.WriteTo(w)
+	body := newBody()
+	defer putBody(body)
+	writeUint16(body, pa.MessageID)
+	return writePacket(w, &pa.FixedHeader, body)
 }
 
 // func (pa *PubackPacket) Write(w io.Writer) error {

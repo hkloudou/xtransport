@@ -8,10 +8,13 @@ import (
 	"unsafe"
 )
 
+// Write marshals v and writes it to w. Supported types are nil, string,
+// []byte, io.WriterTo, encoding.BinaryMarshaler and json.Marshaler,
+// checked in that order.
 func Write(w io.Writer, v interface{}) (n int, err error) {
 	switch v := v.(type) {
 	case nil:
-		return WriteString(w, "")
+		return 0, nil
 	case string:
 		return WriteString(w, v)
 	case []byte:
@@ -33,7 +36,7 @@ func Write(w io.Writer, v interface{}) (n int, err error) {
 		return WriteBytes(w, b)
 	default:
 		return 0, fmt.Errorf(
-			"redis: can't marshal %T (implement encoding.BinaryMarshaler)", v)
+			"xtransport: can't marshal %T (implement io.WriterTo or encoding.BinaryMarshaler)", v)
 	}
 }
 
@@ -45,13 +48,11 @@ func WriteString(w io.Writer, data string) (n int, err error) {
 	return w.Write(stringToBytes(data))
 }
 
-//https://github.com/go-redis/redis/blob/master/internal/util/unsafe.go
-// stringToBytes converts string to byte slice.
+// stringToBytes converts a string to a byte slice without copying.
+// The returned slice must not be modified.
 func stringToBytes(s string) []byte {
-	return *(*[]byte)(unsafe.Pointer(
-		&struct {
-			string
-			Cap int
-		}{s, len(s)},
-	))
+	if len(s) == 0 {
+		return nil
+	}
+	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
