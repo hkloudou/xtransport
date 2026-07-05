@@ -79,7 +79,10 @@ func (t *socket) readLoop(src io.Reader) {
 		if errors.As(err, &closed) {
 			err = io.EOF
 		}
-		t.pipeWriter.CloseWithError(err)
+		// Once the read loop dies the WebSocket session is over (after a
+		// close handshake no further frames may be sent), so tear the
+		// whole socket down rather than leaving a half-open conn.
+		t.closeWithCause(err)
 	}
 	for {
 		// The idle deadline lives here, not in Recv: conn reads happen on
@@ -226,10 +229,17 @@ func (t *socket) SetTimeOut(duration time.Duration) {
 }
 
 func (t *socket) Close() error {
+	return t.closeWithCause(net.ErrClosed)
+}
+
+// closeWithCause closes the socket once; cause is what a pending or
+// subsequent Recv observes from the pipe (io.EOF for a clean peer close,
+// net.ErrClosed for a local Close, the read error otherwise).
+func (t *socket) closeWithCause(cause error) error {
 	t.closeOnce.Do(func() {
 		t.closed.Store(true)
 		// Unblock a pending Recv and a read loop blocked on pipe write.
-		t.pipeWriter.CloseWithError(net.ErrClosed)
+		t.pipeWriter.CloseWithError(cause)
 		t.closeErr = t.conn.Close()
 	})
 	return t.closeErr

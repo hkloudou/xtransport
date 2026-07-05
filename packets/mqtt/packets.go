@@ -324,7 +324,10 @@ func (fh *FixedHeader) unpack(typeAndFlags byte, r io.Reader) error {
 			return fmt.Errorf("%w: publish with qos 3", ErrInvalidFixedHeaderFlags)
 		}
 	case Pubrel, Subscribe, Unsubscribe:
-		if flags != 0x02 {
+		// MQTT 3.1.1 fixes these flags at 0010, but MQTT 3.1 sets the
+		// DUP bit on retransmissions, so the DUP bit is tolerated here;
+		// StrictValidate enforces the 3.1.1 rule where wanted.
+		if flags&^0x08 != 0x02 {
 			return fmt.Errorf("%w: %s flags 0x%x", ErrInvalidFixedHeaderFlags, PacketNames[fh.MessageType], flags)
 		}
 	default:

@@ -321,6 +321,33 @@ func TestCloseUnblocksRecv(t *testing.T) {
 	}
 }
 
+func TestSocketClosesWhenReadLoopExits(t *testing.T) {
+	// After the peer goes away the whole socket must be torn down:
+	// Send may not keep writing into a dead WebSocket session.
+	tran := NewTransport("/ws")
+	l, err := tran.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer l.Close()
+	go l.Accept(func(sock xtransport.Socket) {
+		sock.Close()
+	})
+
+	c, err := tran.Dial(l.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	if _, err := c.Recv(readN(1)); err == nil {
+		t.Fatal("expected error after server close")
+	}
+	if err := c.Send(&frame{data: []byte{1}}); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("expected net.ErrClosed after read loop exit, got %v", err)
+	}
+}
+
 func TestRecvTimeout(t *testing.T) {
 	addr, closer := startEcho(t)
 	defer closer()

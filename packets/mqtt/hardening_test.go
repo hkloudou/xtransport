@@ -96,6 +96,28 @@ func TestInvalidFixedHeaderFlags(t *testing.T) {
 	}
 }
 
+func TestDupFlagToleratedOnRetransmits(t *testing.T) {
+	// MQTT 3.1 sets DUP on retransmitted PUBREL/SUBSCRIBE/UNSUBSCRIBE;
+	// the version-agnostic parser must accept it.
+	cases := []struct {
+		name string
+		wire []byte
+	}{
+		{"pubrel with dup", []byte{0x6A, 0x02, 0x00, 0x01}},
+		{"subscribe with dup", []byte{0x8A, 0x08, 0x00, 0x01, 0x00, 0x03, 'a', '/', 'b', 0x01}},
+		{"unsubscribe with dup", []byte{0xAA, 0x07, 0x00, 0x01, 0x00, 0x03, 'a', '/', 'b'}},
+	}
+	for _, c := range cases {
+		if _, err := ReadPacket(bytes.NewReader(c.wire)); err != nil {
+			t.Errorf("%s: expected accept, got %v", c.name, err)
+		}
+	}
+	// Retain or wrong QoS bits are still rejected.
+	if _, err := ReadPacket(bytes.NewReader([]byte{0x6B, 0x02, 0x00, 0x01})); !errors.Is(err, ErrInvalidFixedHeaderFlags) {
+		t.Errorf("pubrel with retain: expected ErrInvalidFixedHeaderFlags, got %v", err)
+	}
+}
+
 func TestTruncatedPacketsError(t *testing.T) {
 	// A valid CONNECT, truncated at every possible boundary, must error
 	// rather than decode silently corrupted fields.

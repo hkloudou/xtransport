@@ -99,7 +99,8 @@ func (t *transport) Listen(addr string, opts ...xtransport.ListenOption) (xtrans
 }
 
 func (t *transport) String() string {
-	if t.opts.Secure {
+	// Match Dial/Listen: a non-nil TLSConfig implies TLS.
+	if t.opts.Secure || t.opts.TLSConfig != nil {
 		return "wss"
 	}
 	return "ws"
