@@ -3,25 +3,27 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
-	_ "embed"
+	"log"
+	"os"
 )
 
-//go:embed cert/ca.pem
-var embed_ca []byte
-
-//go:embed cert/server.pem
-var embed_server_cert []byte
-
-//go:embed cert/server.key
-var embed_server_key []byte
 var cfg *tls.Config
 
+// Certificates are loaded at runtime so the sample builds without them;
+// drop ca.pem, server.pem and server.key into ./cert to run it.
 func init() {
-	cfg = &tls.Config{
-		ClientCAs:  x509.NewCertPool(),
-		ClientAuth: tls.RequireAndVerifyClientCert,
+	ca, err := os.ReadFile("cert/ca.pem")
+	if err != nil {
+		log.Fatalf("load cert/ca.pem: %v", err)
 	}
-	cfg.ClientCAs.AppendCertsFromPEM(embed_ca)
-	serverCert, _ := tls.X509KeyPair(embed_server_cert, embed_server_key)
-	cfg.Certificates = []tls.Certificate{serverCert}
+	serverCert, err := tls.LoadX509KeyPair("cert/server.pem", "cert/server.key")
+	if err != nil {
+		log.Fatalf("load server keypair: %v", err)
+	}
+	cfg = &tls.Config{
+		ClientCAs:    x509.NewCertPool(),
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		Certificates: []tls.Certificate{serverCert},
+	}
+	cfg.ClientCAs.AppendCertsFromPEM(ca)
 }

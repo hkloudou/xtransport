@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"errors"
 	"log"
 	"net"
 	"time"
@@ -27,6 +28,9 @@ func (t *listener) Accept(fn func(xtransport.Socket)) error {
 	for {
 		c, err := t.listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return err
+			}
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
 					tempDelay = 5 * time.Millisecond
@@ -44,22 +48,17 @@ func (t *listener) Accept(fn func(xtransport.Socket)) error {
 		}
 		tempDelay = 0
 
-		// encBuf := bufio.NewWriter(c)
-		sock := &tcpSocket{
-			timeout: t.timeout,
-			conn:    c,
-			// encBuf:  bufio.NewWriter(c),
-			Context: xtransport.NewSession(),
-		}
+		sock := newSocket(c, t.timeout)
 
 		go func() {
-			// TODO: think of a better error response strategy
 			defer func() {
 				if r := recover(); r != nil {
+					// The handler owns the socket lifetime on a normal
+					// return; only reclaim it when the handler panics.
+					log.Printf("tcp: panic in connection handler: %v\n", r)
 					sock.Close()
 				}
 			}()
-			// go sock.loop()
 			fn(sock)
 		}()
 	}
