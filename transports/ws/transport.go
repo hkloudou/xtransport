@@ -20,6 +20,38 @@ type transport struct {
 	pattern string
 }
 
+type subprotocolsKey struct{}
+
+// SessionKeySubprotocol is the session key under which a listener-side
+// socket stores the subprotocol negotiated during the WebSocket
+// handshake (empty when none was negotiated).
+const SessionKeySubprotocol = "ws:subprotocol"
+
+// Subprotocols configures WebSocket subprotocol negotiation. A listener
+// accepts the first protocol offered by the client that appears in
+// protos and echoes it in the handshake response; Dial offers protos to
+// the server. RFC 6455 clients (browsers, the Node ws package) abort
+// the connection when they offered a subprotocol and the server selects
+// none, so a server speaking MQTT over WebSocket must be configured
+// with Subprotocols("mqtt") to accept standard MQTT clients such as
+// mqtt.js.
+func Subprotocols(protos ...string) xtransport.Option {
+	return func(o *xtransport.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		o.Context = context.WithValue(o.Context, subprotocolsKey{}, append([]string(nil), protos...))
+	}
+}
+
+func (t *transport) subprotocols() []string {
+	if t.opts.Context == nil {
+		return nil
+	}
+	protos, _ := t.opts.Context.Value(subprotocolsKey{}).([]string)
+	return protos
+}
+
 // Dial connects to a WebSocket server. addr may be a plain host:port
 // (the transport's pattern and scheme are appended) or a full ws:// or
 // wss:// URL.
@@ -45,6 +77,7 @@ func (t *transport) Dial(addr string, opts ...xtransport.DialOption) (xtransport
 	dialer := ws.Dialer{
 		Timeout:   dopts.Timeout,
 		TLSConfig: t.opts.TLSConfig,
+		Protocols: t.subprotocols(),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), dopts.Timeout)
 	defer cancel()
@@ -89,12 +122,21 @@ func (t *transport) Listen(addr string, opts ...xtransport.ListenOption) (xtrans
 	}
 
 	l := &wsTransportListener{
-		ln:      ln,
-		timeout: t.opts.Timeout,
+		ln:        ln,
+		timeout:   t.opts.Timeout,
+		protocols: t.subprotocols(),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(t.pattern, l.serveWS)
-	l.server = &http.Server{Handler: mux}
+	l.server = &http.Server{
+		Handler: mux,
+		// Bound the pre-upgrade phase: without these a client can hold
+		// a connection (and its goroutine) open indefinitely by
+		// trickling header bytes (slowloris). They do not affect
+		// upgraded WebSocket connections, which are hijacked.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
 	return l, nil
 }
 

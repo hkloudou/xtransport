@@ -22,6 +22,10 @@ type tcpSocket struct {
 	// can be called concurrently with Recv/Send.
 	timeout atomic.Int64
 	*xtransport.Context
+	// wmu serializes Send calls: net.Conn.Write retries partial writes
+	// internally, so without the lock two concurrent Sends could
+	// interleave their bytes on the wire and corrupt the framing.
+	wmu       sync.Mutex
 	closeOnce sync.Once
 	closeErr  error
 	closed    atomic.Bool
@@ -86,6 +90,8 @@ func (t *tcpSocket) Send(m interface{}) (err error) {
 	if t.closed.Load() {
 		return net.ErrClosed
 	}
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
 	if d := time.Duration(t.timeout.Load()); d > 0 {
 		if err := t.conn.SetWriteDeadline(time.Now().Add(d)); err != nil {
 			return err

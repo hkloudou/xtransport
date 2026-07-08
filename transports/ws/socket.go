@@ -84,15 +84,20 @@ func (t *socket) readLoop(src io.Reader) {
 		// whole socket down rather than leaving a half-open conn.
 		t.closeWithCause(err)
 	}
-	for {
-		// The idle deadline lives here, not in Recv: conn reads happen on
-		// this goroutine, and each new frame re-arms it, so the peer must
-		// stay active within the SetTimeOut interval (keepalive style).
+	// The idle deadline lives here, not in Recv: conn reads happen on
+	// this goroutine. Only data frames re-arm it — if control frames
+	// counted as activity, WebSocket pings could keep an
+	// application-silent connection alive forever and defeat
+	// keepalive enforcement (e.g. MQTT [MQTT-3.1.2-24]).
+	arm := func() {
 		if d := time.Duration(t.timeout.Load()); d > 0 {
 			t.conn.SetReadDeadline(time.Now().Add(d))
 		} else {
 			t.conn.SetReadDeadline(time.Time{})
 		}
+	}
+	arm()
+	for {
 		hdr, err := rd.NextFrame()
 		if err != nil {
 			fail(err)
@@ -110,6 +115,7 @@ func (t *socket) readLoop(src io.Reader) {
 			fail(err)
 			return
 		}
+		arm()
 	}
 }
 
@@ -130,26 +136,42 @@ func (t *socket) handleControl(h ws.Header, r io.Reader) error {
 	}
 	switch h.OpCode {
 	case ws.OpPing:
-		t.conn.SetWriteDeadline(time.Now().Add(d))
-		return t.writeFrame(ws.NewPongFrame(payload))
+		return t.writeFrame(ws.NewPongFrame(payload), d)
 	case ws.OpClose:
 		code, reason := ws.ParseCloseFrameData(payload)
-		// Best effort close acknowledgement.
-		t.conn.SetWriteDeadline(time.Now().Add(d))
-		_ = t.writeFrame(ws.NewCloseFrame(ws.NewCloseFrameBody(code, "")))
+		// Best effort close acknowledgement. A close frame without a
+		// status code must be answered without one too: echoing the
+		// zero code would put an invalid status on the wire.
+		reply := ws.NewCloseFrame(nil)
+		if len(payload) >= 2 {
+			reply = ws.NewCloseFrame(ws.NewCloseFrameBody(code, ""))
+		}
+		_ = t.writeFrame(reply, d)
 		return wsutil.ClosedError{Code: code, Reason: reason}
 	}
 	return nil
 }
 
 // writeFrame masks the frame when in client mode and writes it while
-// holding the write mutex, so concurrent writers cannot interleave frames.
-func (t *socket) writeFrame(f ws.Frame) error {
+// holding the write mutex, so concurrent writers cannot interleave
+// frames. The write deadline (d <= 0 means none) is applied under the
+// same mutex: setting it outside would let a concurrent writer's
+// deadline apply to this frame's write.
+func (t *socket) writeFrame(f ws.Frame, d time.Duration) error {
 	if t.client {
 		f = ws.MaskFrameInPlace(f)
 	}
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
+	if d > 0 {
+		if err := t.conn.SetWriteDeadline(time.Now().Add(d)); err != nil {
+			return err
+		}
+	} else {
+		if err := t.conn.SetWriteDeadline(time.Time{}); err != nil {
+			return err
+		}
+	}
 	return ws.WriteFrame(t.conn, f)
 }
 
@@ -178,9 +200,9 @@ func (t *socket) Recv(fc func(r io.Reader) (interface{}, error)) (m interface{},
 	if fc == nil {
 		return nil, fmt.Errorf("ws: nil recv callback")
 	}
-	if t.closed.Load() {
-		return nil, net.ErrClosed
-	}
+	// No fast-path on the closed flag: the pipe always reports the close
+	// cause (io.EOF after a clean peer close, net.ErrClosed after a
+	// local Close), so the error does not depend on timing.
 	// The idle deadline is managed by the read loop; Recv just consumes
 	// the relayed byte stream.
 	return fc(t.pipeReader)
@@ -197,23 +219,22 @@ func (t *socket) Send(m interface{}) (err error) {
 	}
 	buf := bufPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	defer bufPool.Put(buf)
+	defer putBuf(buf)
 	if _, err := xtransport.Write(buf, m); err != nil {
 		return err
 	}
-	if buf.Len() == 0 {
-		return fmt.Errorf("ws: empty packet send")
+	// An empty payload is sent as an empty binary frame; it adds no
+	// bytes to the peer's Recv stream, matching the tcp/quic no-op.
+	return t.writeFrame(ws.NewBinaryFrame(buf.Bytes()), time.Duration(t.timeout.Load()))
+}
+
+// putBuf returns a send buffer to the pool unless one huge payload grew
+// it so large that pooling it would pin the memory indefinitely.
+func putBuf(buf *bytes.Buffer) {
+	if buf.Cap() > 64*1024 {
+		return
 	}
-	if d := time.Duration(t.timeout.Load()); d > 0 {
-		if err := t.conn.SetWriteDeadline(time.Now().Add(d)); err != nil {
-			return err
-		}
-	} else {
-		if err := t.conn.SetWriteDeadline(time.Time{}); err != nil {
-			return err
-		}
-	}
-	return t.writeFrame(ws.NewBinaryFrame(buf.Bytes()))
+	bufPool.Put(buf)
 }
 
 // SetTimeOut sets the idle interval after which the connection is
