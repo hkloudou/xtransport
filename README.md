@@ -113,11 +113,11 @@ sock, err := tran.Dial("127.0.0.1:1883")
   client-speaks-first (as MQTT is); a server that never receives the
   first packet reaps the connection after `Options.Timeout` (default
   one minute).
-- Dialing `wss://` or QUIC without a `tls.Config` verifies the server
-  certificate against the system roots; pass an explicit config with
-  `InsecureSkipVerify` for self-signed deployments. (The TCP transport
-  keeps its historical insecure-by-default dial behavior for
-  compatibility.)
+- Dialing TLS (tcp with `Secure(true)`, `wss://`, QUIC) without a
+  `tls.Config` verifies the server certificate against the system
+  roots; pass an explicit config with `InsecureSkipVerify` for
+  self-signed deployments. (Before v1.1.8 the TCP transport silently
+  disabled verification when no config was given.)
 
 ## Interface
 

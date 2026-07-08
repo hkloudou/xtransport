@@ -27,13 +27,12 @@ func (t *transport) Dial(addr string, opts ...xtransport.DialOption) (xtransport
 	var err error
 
 	if t.opts.Secure || t.opts.TLSConfig != nil {
-		config := t.opts.TLSConfig
-		if config == nil {
-			config = &tls.Config{
-				InsecureSkipVerify: true,
-			}
-		}
-		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: dopts.Timeout}, t.network, addr, config)
+		// A nil TLSConfig means system roots with full verification,
+		// matching the ws and quic transports. Deployments using
+		// self-signed certificates must opt out explicitly:
+		//   xtransport.TLSConfig(&tls.Config{InsecureSkipVerify: true})
+		// (Historically a nil config silently disabled verification.)
+		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: dopts.Timeout}, t.network, addr, t.opts.TLSConfig)
 	} else {
 		conn, err = net.DialTimeout(t.network, addr, dopts.Timeout)
 	}
