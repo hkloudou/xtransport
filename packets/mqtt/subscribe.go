@@ -43,6 +43,9 @@ func (s *SubscribePacket) Validate() error {
 	// The payload of a SUBSCRIBE packet MUST contain at least one Topic Filter / QoS pair. A SUBSCRIBE packet with no payload is a protocol violation [MQTT-3.8.3-3]. See section 4.8 for information about handling errors.
 
 	// The requested maximum QoS field is encoded in the byte following each UTF-8 encoded topic name, and these Topic Filter / QoS pairs are packed contiguously.
+	if s.MessageID == 0 {
+		return NewPacketError("2.3.1-1", "SUBSCRIBE must have a non-zero packet identifier")
+	}
 	if len(s.Qoss) != len(s.Topics) || len(s.Qoss) == 0 {
 		return NewPacketError("3.8.3-4", "payload are zero or not pair")
 	}

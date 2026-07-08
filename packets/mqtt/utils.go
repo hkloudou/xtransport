@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"strings"
+	"unicode/utf8"
 )
 
 // Topic Names and Topic Filters
@@ -21,15 +22,25 @@ import (
 // - A TopicFilter with a # will match the absence of a level
 //     Example:  a subscription to "foo/#" will match messages published to "foo".
 
+// ValidUTF8String reports whether s is a well-formed MQTT UTF-8 string:
+// valid UTF-8 that contains no U+0000 [MQTT-1.5.3-1, MQTT-1.5.3-2].
+func ValidUTF8String(s string) bool {
+	return utf8.ValidString(s) && !strings.ContainsRune(s, 0)
+}
+
 // ValidatePattern checks that pattern is a valid MQTT topic filter:
-// 1-65535 bytes, '#' only as the final entire level [MQTT-4.7.1-2] and
-// '+' only as an entire level [MQTT-4.7.1-3].
+// 1-65535 bytes of well-formed UTF-8 [MQTT-4.7.3-1..3], '#' only as the
+// final entire level [MQTT-4.7.1-2] and '+' only as an entire level
+// [MQTT-4.7.1-3].
 func ValidatePattern(pattern string) error {
 	if len(pattern) == 0 {
 		return ErrInvalidTopicEmptyString
 	}
 	if len(pattern) > maxFieldLength {
 		return ErrInvalidTopicTooLong
+	}
+	if !ValidUTF8String(pattern) {
+		return ErrInvalidTopicUTF8
 	}
 	levels := strings.Split(pattern, "/")
 	for i, level := range levels {

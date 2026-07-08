@@ -34,10 +34,18 @@ func (p *PublishPacket) String() string {
 	return fmt.Sprintf("%s topicName: %s MessageID: %d payload: %s", p.FixedHeader, p.TopicName, p.MessageID, string(p.Payload))
 }
 
-// Validate checks that the topic name is a valid MQTT topic name:
-// non-empty and free of the '#' and '+' wildcards, which are only
-// allowed in topic filters [MQTT-3.3.2-2].
+// Validate checks that the topic name is a valid MQTT topic name
+// (non-empty, well-formed UTF-8, free of the '#' and '+' wildcards
+// [MQTT-3.3.2-2]), that a QoS>0 publish carries a non-zero packet
+// identifier [MQTT-2.3.1-1] and that a QoS 0 publish does not claim to
+// be a duplicate [MQTT-3.3.1-2].
 func (p *PublishPacket) Validate() error {
+	if p.Qos > 0 && p.MessageID == 0 {
+		return NewPacketError("2.3.1-1", "QoS>0 PUBLISH must have a non-zero packet identifier")
+	}
+	if p.Qos == 0 && p.Dup {
+		return NewPacketError("3.3.1-2", "DUP must be 0 for QoS 0 messages")
+	}
 	return ValidateTopic(p.TopicName)
 }
 

@@ -30,8 +30,17 @@ type UnsubscribePacket struct {
 }
 
 func (s *UnsubscribePacket) Validate() error {
+	if s.MessageID == 0 {
+		return NewPacketError("2.3.1-1", "UNSUBSCRIBE must have a non-zero packet identifier")
+	}
 	if len(s.Topics) == 0 {
 		return NewPacketError("3.10.3-2", "payload are zero")
+	}
+	for _, topic := range s.Topics {
+		// Unsubscribe payloads carry topic filters [MQTT-3.10.3-1].
+		if err := ValidatePattern(topic); err != nil {
+			return NewPacketError("3.10.3-1", err.Error())
+		}
 	}
 	return nil
 }
