@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.24.x', '1.25.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: '**/go.sum'
+      - run: make vet
+      - run: make build
+      - run: make race
+
+  minimum-go:
+    # The root, codec and tcp modules declare `go 1.21`; make sure that
+    # claim stays true instead of silently requiring a newer toolchain.
+    name: minimum go version (1.21)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.x'
+          cache-dependency-path: '**/go.sum'
+      - env:
+          GOWORK: 'off'
+          GOTOOLCHAIN: local
+        run: |
+          for m in . ./packets/mqtt ./transports/tcp; do
+            echo "build+test $m with $(go version)"
+            (cd "$m" && go build ./... && go test ./...)
+          done
+
+  downstream:
+    # Builds every module with GOWORK=off, resolving cross-module deps
+    # from their published tags exactly like a consumer's `go get`.
+    # Catches tag/require version mixups the workspace would hide.
+    name: downstream module resolution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: '**/go.sum'
+      - run: make downstream
+
+  lint:
+    name: gofmt + staticcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: '**/go.sum'
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:"; echo "$out"; exit 1
+          fi
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          for m in . ./packets/mqtt ./transports/tcp ./transports/ws ./transports/quic ./interop; do
+            echo "staticcheck $m"
+            (cd "$m" && staticcheck ./...)
+          done
+
+  fuzz:
+    name: fuzz smoke (packets/mqtt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: '**/go.sum'
+      - run: make fuzz
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: '**/go.sum'
+      - run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          for m in . ./packets/mqtt ./transports/tcp ./transports/ws ./transports/quic ./interop; do
+            echo "govulncheck $m"
+            (cd "$m" && govulncheck ./...)
+          done
+
+  interop-js:
+    # Real mqtt.js client against a broker built on xtransport: raw TCP
+    # and MQTT-over-WebSocket (subprotocol negotiation included), QoS
+    # 0/1/2 roundtrips and keepalive.
+    name: interop (mqtt.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: '**/go.sum'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: build broker
+        run: go build -o /tmp/interop-broker ./interop/cmd/broker
+      - name: run mqtt.js suite
+        working-directory: interop/js
+        run: |
+          npm ci --no-audit --no-fund
+          /tmp/interop-broker -tcp 127.0.0.1:1883 -ws 127.0.0.1:8083 &
+          BROKER=$!
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/1883) 2>/dev/null; then exec 3>&-; break; fi
+            sleep 0.5
+          done
+          node test.mjs
+          kill $BROKER
