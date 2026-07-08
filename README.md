@@ -92,14 +92,27 @@ sock, err := tran.Dial("127.0.0.1:1883")
 - `Recv`/`Send` set read/write deadlines from the value given to
   `SetTimeOut`; a zero duration disables the deadline. On the WebSocket
   transport the value is an idle interval: the connection is torn down
-  when the peer sends nothing for that long.
+  when the peer sends no *data* frames for that long (protocol-level
+  pings alone do not count, so WebSocket keepalive cannot mask an
+  application that has gone silent).
+- `Send` is safe for concurrent use from multiple goroutines; packets
+  never interleave on the wire.
+- WebSocket servers for standard MQTT clients (browsers, mqtt.js) need
+  RFC 6455 subprotocol negotiation:
+  `ws.NewTransport("/mqtt", ws.Subprotocols("mqtt"))`. The negotiated
+  protocol is available via `sock.Session()` under
+  `ws.SessionKeySubprotocol`.
 - A panic inside the `Recv` callback is returned as an error instead of
   crashing the connection handler.
 - `mqtt.ReadPacket` enforces the protocol's 256 MB remaining-length cap;
   use `mqtt.ReadPacketLimit(r, n)` to enforce a tighter per-connection
   memory bound.
 - The QUIC transport requires a `tls.Config` on the listener side; when
-  the config carries no ALPN protocols, `xtransport` is used.
+  the config carries no ALPN protocols, `xtransport` is used. QUIC
+  opens streams lazily, so the protocol spoken over the socket must be
+  client-speaks-first (as MQTT is); a server that never receives the
+  first packet reaps the connection after `Options.Timeout` (default
+  one minute).
 - Dialing `wss://` or QUIC without a `tls.Config` verifies the server
   certificate against the system roots; pass an explicit config with
   `InsecureSkipVerify` for self-signed deployments. (The TCP transport
