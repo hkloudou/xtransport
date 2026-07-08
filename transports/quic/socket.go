@@ -2,6 +2,7 @@ package quic
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,8 +19,11 @@ type quicSocket struct {
 	// can be called concurrently with Recv/Send.
 	timeout atomic.Int64
 	*xtransport.Context
-	conn      *quic.Conn
-	stream    *quic.Stream
+	conn   *quic.Conn
+	stream *quic.Stream
+	// wmu serializes Send calls; quic-go streams do not allow concurrent
+	// Write, and interleaved writes would corrupt the framing anyway.
+	wmu       sync.Mutex
 	closeOnce sync.Once
 	closeErr  error
 	closed    atomic.Bool
@@ -69,7 +73,13 @@ func (t *quicSocket) Recv(fc func(r io.Reader) (interface{}, error)) (m interfac
 			return nil, err
 		}
 	}
-	return fc(t.stream)
+	m, err = fc(t.stream)
+	// A local Close cancels the read side with a quic StreamError;
+	// report it as net.ErrClosed like the other transports do.
+	if err != nil && !errors.Is(err, io.EOF) && t.closed.Load() {
+		return nil, net.ErrClosed
+	}
+	return m, err
 }
 
 func (t *quicSocket) Send(m interface{}) (err error) {
@@ -81,6 +91,8 @@ func (t *quicSocket) Send(m interface{}) (err error) {
 	if t.closed.Load() {
 		return net.ErrClosed
 	}
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
 	if d := time.Duration(t.timeout.Load()); d > 0 {
 		if err := t.stream.SetWriteDeadline(time.Now().Add(d)); err != nil {
 			return err
@@ -98,10 +110,31 @@ func (t *quicSocket) SetTimeOut(duration time.Duration) {
 	t.timeout.Store(int64(duration))
 }
 
+// closeGracePeriod is how long a closed socket keeps its connection
+// alive so data already accepted by Send can still reach the peer.
+const closeGracePeriod = 3 * time.Second
+
 func (t *quicSocket) Close() error {
 	t.closeOnce.Do(func() {
 		t.closed.Store(true)
-		t.closeErr = t.conn.CloseWithError(0, "")
+		// Close the write side gracefully: the FIN is queued behind any
+		// data already accepted by Send, so the peer still receives it
+		// (an immediate CloseWithError would discard that data).
+		t.closeErr = t.stream.Close()
+		// Release a Recv blocked in stream.Read right away.
+		t.stream.CancelRead(0)
+		// Tear the connection down once the queued data has had a
+		// chance to drain; quic-go exposes no flush-complete signal, so
+		// a grace timer bounds how long the connection lingers.
+		go func() {
+			timer := time.NewTimer(closeGracePeriod)
+			defer timer.Stop()
+			select {
+			case <-t.conn.Context().Done():
+			case <-timer.C:
+			}
+			t.conn.CloseWithError(0, "")
+		}()
 	})
 	return t.closeErr
 }

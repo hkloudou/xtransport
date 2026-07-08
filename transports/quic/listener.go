@@ -38,7 +38,16 @@ func (q *quicListener) Accept(fn func(xtransport.Socket)) error {
 		// connects but never opens a stream would stall every other
 		// incoming connection.
 		go func(c *quic.Conn) {
-			stream, err := c.AcceptStream(q.ctx)
+			// Bound the wait for the first stream: a client that
+			// completes the handshake but never sends would otherwise
+			// pin this goroutine and the connection forever.
+			wait := q.timeout
+			if wait <= 0 {
+				wait = time.Minute
+			}
+			ctx, cancel := context.WithTimeout(q.ctx, wait)
+			stream, err := c.AcceptStream(ctx)
+			cancel()
 			if err != nil {
 				c.CloseWithError(0, "")
 				return
