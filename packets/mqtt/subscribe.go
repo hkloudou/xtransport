@@ -66,6 +66,9 @@ func (s *SubscribePacket) Validate() error {
 }
 
 func (s *SubscribePacket) StrictValidate() error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
 	// Bits 3,2,1 and 0 of the fixed header of the SUBSCRIBE Control Packet are reserved and MUST be set to 0,0,1 and 0 respectively.
 	// [MQTT-3.8.1-1].
 	if s.FixedHeader.Dup {
@@ -81,6 +84,11 @@ func (s *SubscribePacket) StrictValidate() error {
 }
 
 func (s *SubscribePacket) WriteTo(w io.Writer) (n int64, err error) {
+	if len(s.Topics) == 0 {
+		// A SUBSCRIBE with no topic filter is a protocol violation the
+		// receiver must close the connection on [MQTT-3.8.3-3].
+		return 0, NewPacketError("3.8.3-3", "subscribe packet must contain at least one topic filter")
+	}
 	if len(s.Topics) != len(s.Qoss) {
 		return 0, NewPacketError("3.8.3-4", "topics and qoss are not paired")
 	}

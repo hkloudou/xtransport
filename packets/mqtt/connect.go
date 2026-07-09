@@ -52,6 +52,11 @@ func (c *ConnectPacket) String() string {
 }
 
 func (c *ConnectPacket) WriteTo(w io.Writer) (n int64, err error) {
+	if c.WillQos > 2 {
+		// Values above 2 bit-shift into the will-retain/password flags
+		// and corrupt the connect flags byte [MQTT-3.1.2-14].
+		return 0, NewPacketError("3.1.2-14", "will QoS must be 0, 1 or 2")
+	}
 	body := newBody()
 	defer putBody(body)
 

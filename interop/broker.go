@@ -88,6 +88,12 @@ func (b *Broker) handle(sock xtransport.Socket) {
 		return m.(mqtt.ControlPacket), nil
 	}
 
+	// A client gets a bounded window to present its CONNECT; without
+	// this, a connection that never authenticates would hold the
+	// handler goroutine forever (the keepalive-based timeout is only
+	// installed after CONNECT).
+	sock.SetTimeOut(30 * time.Second)
+
 	// The first packet must be CONNECT [MQTT-3.1.0-1].
 	first, err := recv()
 	if err != nil {
@@ -106,6 +112,9 @@ func (b *Broker) handle(sock xtransport.Socket) {
 		// The server must disconnect a client silent for 1.5x the keep
 		// alive interval [MQTT-3.1.2-24].
 		sock.SetTimeOut(time.Duration(connect.Keepalive) * time.Second * 3 / 2)
+	} else {
+		// Keepalive 0 disables the mechanism [MQTT-3.1.2-24].
+		sock.SetTimeOut(0)
 	}
 
 	c := &client{

@@ -46,6 +46,9 @@ func (s *UnsubscribePacket) Validate() error {
 }
 
 func (s *UnsubscribePacket) StrictValidate() error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
 	// Bits 3,2,1 and 0 of the fixed header of the SUBSCRIBE Control Packet are reserved and MUST be set to 0,0,1 and 0 respectively.
 	// [MQTT-3.10.1-1].
 	if s.FixedHeader.Dup {
@@ -64,6 +67,11 @@ func (u *UnsubscribePacket) String() string {
 }
 
 func (u *UnsubscribePacket) WriteTo(w io.Writer) (n int64, err error) {
+	if len(u.Topics) == 0 {
+		// An UNSUBSCRIBE with no topic filter is a protocol violation
+		// the receiver must close the connection on [MQTT-3.10.3-2].
+		return 0, NewPacketError("3.10.3-2", "unsubscribe packet must contain at least one topic filter")
+	}
 	body := newBody()
 	defer putBody(body)
 	writeUint16(body, u.MessageID)

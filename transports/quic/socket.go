@@ -102,12 +102,28 @@ func (t *quicSocket) Send(m interface{}) (err error) {
 			return err
 		}
 	}
-	_, err = xtransport.Write(t.stream, m)
+	n, err := xtransport.Write(t.stream, m)
+	if err != nil && n > 0 {
+		// Part of the packet reached the stream (e.g. deadline expired
+		// mid-write); the framing is unrecoverable, so fail every later
+		// operation instead of silently corrupting the stream.
+		t.Close()
+	}
 	return err
 }
 
+// SetTimeOut sets the deadline interval used by Recv and Send. It also
+// applies the new value to any Recv or Send already in flight, so a
+// handler can tighten the deadline on a connection that is currently
+// blocked (e.g. enforcing an MQTT keepalive decided after Recv started).
 func (t *quicSocket) SetTimeOut(duration time.Duration) {
 	t.timeout.Store(int64(duration))
+	var dl time.Time
+	if duration > 0 {
+		dl = time.Now().Add(duration)
+	}
+	t.stream.SetReadDeadline(dl)
+	t.stream.SetWriteDeadline(dl)
 }
 
 // closeGracePeriod is how long a closed socket keeps its connection

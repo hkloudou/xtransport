@@ -58,6 +58,12 @@ func (t *wsTransportListener) serveWS(w http.ResponseWriter, r *http.Request) {
 	}
 	c, rw, hs, err := up.Upgrade(r, w)
 	if err != nil {
+		// Upgrade hijacks the connection before validating the
+		// handshake; on failure it writes the HTTP error but leaves
+		// the connection open and unowned — close it or it leaks.
+		if c != nil {
+			c.Close()
+		}
 		return
 	}
 	// Frames the client pipelined right behind the handshake are already
