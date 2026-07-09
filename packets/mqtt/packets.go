@@ -99,6 +99,20 @@ var (
 	// bytes field exceeds 65535 bytes and therefore cannot be length
 	// prefixed (it would previously be silently truncated).
 	ErrFieldTooLong = errors.New("mqtt: string or bytes field exceeds 65535 bytes")
+	// ErrTrailingBytes is returned when a packet's declared remaining
+	// length exceeds the bytes its structure actually uses; such a
+	// packet is malformed [MQTT-2.2.3] even though the stream stays in
+	// sync.
+	ErrTrailingBytes = errors.New("mqtt: remaining length larger than packet content")
+	// ErrShortRemainingLength is returned when a packet's declared
+	// remaining length is too small for its structure (e.g. a PUBACK
+	// with remaining length 0). The bytes were all received, so this is
+	// an in-band malformed packet, not a connection-level truncation.
+	ErrShortRemainingLength = errors.New("mqtt: remaining length too small for packet content")
+	// ErrInvalidQoS is returned when encoding a packet whose fixed
+	// header carries a QoS above 2; encoding it would corrupt the
+	// header byte.
+	ErrInvalidQoS = errors.New("mqtt: invalid QoS")
 )
 
 // Below are the const definitions for error codes returned by
@@ -174,6 +188,12 @@ func ReadPacketLimit(r io.Reader, maxRemainingLength int) (ControlPacket, error)
 	}
 
 	if err := fh.unpack(b[0], r); err != nil {
+		// Once the first header byte has been consumed, running out of
+		// bytes is a truncated packet, not an orderly close: only a
+		// stream that ends exactly on a packet boundary yields io.EOF.
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
 		return nil, err
 	}
 	if fh.RemainingLength > maxRemainingLength {
@@ -185,13 +205,40 @@ func ReadPacketLimit(r io.Reader, maxRemainingLength int) (ControlPacket, error)
 		return nil, err
 	}
 
-	packetBytes := make([]byte, fh.RemainingLength)
-	if _, err := io.ReadFull(r, packetBytes); err != nil {
-		return nil, err
+	// Read the body through a growing buffer instead of allocating the
+	// declared remaining length up front: a peer must actually deliver
+	// the bytes it announced before the matching memory is committed.
+	var body bytes.Buffer
+	if fh.RemainingLength > 0 {
+		grow := fh.RemainingLength
+		if grow > 32*1024 {
+			grow = 32 * 1024
+		}
+		body.Grow(grow)
+		if _, err := io.CopyN(&body, r, int64(fh.RemainingLength)); err != nil {
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
+			}
+			return nil, err
+		}
 	}
 
-	err = cp.Unpack(bytes.NewBuffer(packetBytes))
-	return cp, err
+	if err := cp.Unpack(&body); err != nil {
+		// The declared remaining length was delivered in full, so a
+		// reader exhaustion inside Unpack means the length is too
+		// small for the packet's structure — malformed input, never a
+		// connection-level EOF.
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			err = fmt.Errorf("%w: %s", ErrShortRemainingLength, PacketNames[fh.MessageType])
+		}
+		return nil, err
+	}
+	// Every byte declared by the remaining length must belong to the
+	// packet's structure; leftovers mean the length lied [MQTT-2.2.3].
+	if body.Len() > 0 {
+		return nil, fmt.Errorf("%w: %d trailing bytes after %s", ErrTrailingBytes, body.Len(), PacketNames[fh.MessageType])
+	}
+	return cp, nil
 }
 
 // NewControlPacket is used to create a new ControlPacket of the type specified
@@ -359,16 +406,6 @@ func decodeUint16(b io.Reader) (uint16, error) {
 	return binary.BigEndian.Uint16(num[:]), nil
 }
 
-func encodeUint16(num uint16) []byte {
-	bytesResult := make([]byte, 2)
-	binary.BigEndian.PutUint16(bytesResult, num)
-	return bytesResult
-}
-
-func encodeString(field string) []byte {
-	return encodeBytes([]byte(field))
-}
-
 func decodeString(b io.Reader) (string, error) {
 	buf, err := decodeBytes(b)
 	return string(buf), err
@@ -386,12 +423,6 @@ func decodeBytes(b io.Reader) ([]byte, error) {
 	}
 
 	return field, nil
-}
-
-func encodeBytes(field []byte) []byte {
-	fieldLength := make([]byte, 2)
-	binary.BigEndian.PutUint16(fieldLength, uint16(len(field)))
-	return append(fieldLength, field...)
 }
 
 // writeUint16 appends the big endian encoding of num to buf.
@@ -420,22 +451,6 @@ func writeBytes(buf *bytes.Buffer, field []byte) error {
 	writeUint16(buf, uint16(len(field)))
 	buf.Write(field)
 	return nil
-}
-
-func encodeLength(length int) []byte {
-	var encLength []byte
-	for {
-		digit := byte(length % 128)
-		length /= 128
-		if length > 0 {
-			digit |= 0x80
-		}
-		encLength = append(encLength, digit)
-		if length == 0 {
-			break
-		}
-	}
-	return encLength
 }
 
 func decodeLength(r io.Reader) (int, error) {
@@ -499,7 +514,13 @@ func writePacket(w io.Writer, fh *FixedHeader, body *bytes.Buffer) (int64, error
 	if remaining > MaxRemainingLength {
 		return 0, ErrPacketTooLarge
 	}
-	fh.RemainingLength = remaining
+	if fh.Qos > 2 {
+		// A QoS above 2 would bit-shift into the DUP flag and corrupt
+		// the header byte [MQTT-3.3.1-4].
+		return 0, fmt.Errorf("%w: qos %d", ErrInvalidQoS, fh.Qos)
+	}
+	// Note: fh is not mutated (RemainingLength keeps whatever value it
+	// had), so WriteTo is safe to call concurrently on one packet.
 
 	var enc [4]byte
 	n := 0

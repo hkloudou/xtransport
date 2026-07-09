@@ -42,6 +42,21 @@ func (sa *SubackPacket) WriteTo(w io.Writer) (n int64, err error) {
 	return writePacket(w, &sa.FixedHeader, body)
 }
 
+// Validate checks the return codes: only 0x00, 0x01, 0x02 (granted
+// QoS) and 0x80 (failure) are defined [MQTT-3.9.3-2], and the payload
+// must contain at least one code.
+func (sa *SubackPacket) Validate() error {
+	if len(sa.ReturnCodes) == 0 {
+		return NewPacketError("3.9.3", "suback packet must contain at least one return code")
+	}
+	for _, code := range sa.ReturnCodes {
+		if code > 2 && code != 0x80 {
+			return NewPacketError("3.9.3-2", fmt.Sprintf("invalid suback return code 0x%x", code))
+		}
+	}
+	return nil
+}
+
 // Unpack decodes the details of a ControlPacket after the fixed
 // header has been read
 func (sa *SubackPacket) Unpack(b io.Reader) error {

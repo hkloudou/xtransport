@@ -1,0 +1,12 @@
+{
+  "name": "xtransport-interop-js",
+  "private": true,
+  "type": "module",
+  "description": "Real mqtt.js client test against the xtransport interop broker",
+  "scripts": {
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.1"
+  }
+}

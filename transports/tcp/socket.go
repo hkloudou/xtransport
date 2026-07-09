@@ -2,6 +2,7 @@ package tcp
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -22,6 +23,10 @@ type tcpSocket struct {
 	// can be called concurrently with Recv/Send.
 	timeout atomic.Int64
 	*xtransport.Context
+	// wmu serializes Send calls: net.Conn.Write retries partial writes
+	// internally, so without the lock two concurrent Sends could
+	// interleave their bytes on the wire and corrupt the framing.
+	wmu       sync.Mutex
 	closeOnce sync.Once
 	closeErr  error
 	closed    atomic.Bool
@@ -37,9 +42,16 @@ func newSocket(conn net.Conn, timeout time.Duration) *tcpSocket {
 	return s
 }
 
+// ConnectionState returns the TLS state, or nil for a plaintext socket
+// or one whose TLS handshake has not completed yet. Server-side
+// handshakes are lazy: they run during the first Recv or Send, so the
+// state (e.g. peer certificates) is only available after that.
 func (t *tcpSocket) ConnectionState() *tls.ConnectionState {
 	if c2, ok := t.conn.(*tls.Conn); ok {
 		tmp := c2.ConnectionState()
+		if !tmp.HandshakeComplete {
+			return nil
+		}
 		return &tmp
 	}
 	return nil
@@ -86,7 +98,26 @@ func (t *tcpSocket) Send(m interface{}) (err error) {
 	if t.closed.Load() {
 		return net.ErrClosed
 	}
-	if d := time.Duration(t.timeout.Load()); d > 0 {
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	d := time.Duration(t.timeout.Load())
+	// A lazy server-side TLS handshake is driven by whichever operation
+	// touches the conn first. When that is a Send, the handshake READS
+	// the client hello, which the write deadline does not bound — run
+	// it explicitly under the timeout so a silent peer cannot park this
+	// goroutine forever.
+	if tc, ok := t.conn.(*tls.Conn); ok && !tc.ConnectionState().HandshakeComplete {
+		ctx := context.Background()
+		if d > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, d)
+			defer cancel()
+		}
+		if err := tc.HandshakeContext(ctx); err != nil {
+			return err
+		}
+	}
+	if d > 0 {
 		if err := t.conn.SetWriteDeadline(time.Now().Add(d)); err != nil {
 			return err
 		}
@@ -95,12 +126,28 @@ func (t *tcpSocket) Send(m interface{}) (err error) {
 			return err
 		}
 	}
-	_, err = xtransport.Write(t.conn, m)
+	n, err := xtransport.Write(t.conn, m)
+	if err != nil && n > 0 {
+		// Part of the packet reached the wire (e.g. deadline expired
+		// mid-write); the stream framing is unrecoverable, so fail
+		// every later operation instead of silently corrupting it.
+		t.Close()
+	}
 	return err
 }
 
+// SetTimeOut sets the deadline interval used by Recv and Send. It also
+// applies the new value to any Recv or Send already in flight, so a
+// handler can tighten the deadline on a connection that is currently
+// blocked (e.g. enforcing an MQTT keepalive decided after Recv started).
 func (t *tcpSocket) SetTimeOut(duration time.Duration) {
 	t.timeout.Store(int64(duration))
+	var dl time.Time
+	if duration > 0 {
+		dl = time.Now().Add(duration)
+	}
+	t.conn.SetReadDeadline(dl)
+	t.conn.SetWriteDeadline(dl)
 }
 
 func (t *tcpSocket) Close() error {

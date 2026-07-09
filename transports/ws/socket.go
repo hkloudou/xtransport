@@ -69,6 +69,14 @@ func (t *socket) readLoop(src io.Reader) {
 	if t.client {
 		state = ws.StateClientSide
 	}
+	// The idle deadline lives here, not in Recv: conn reads happen on
+	// this goroutine. It is re-armed only when data bytes actually
+	// arrive — if control frames or empty fragments counted as
+	// activity, WebSocket pings could keep an application-silent
+	// connection alive forever and defeat keepalive enforcement (e.g.
+	// MQTT [MQTT-3.1.2-24]); and it is re-armed *before* the read that
+	// follows data progress, so time the application spends consuming
+	// a message (pipe backpressure) is never charged against the peer.
 	rd := &wsutil.Reader{
 		Source:         src,
 		State:          state,
@@ -84,15 +92,8 @@ func (t *socket) readLoop(src io.Reader) {
 		// whole socket down rather than leaving a half-open conn.
 		t.closeWithCause(err)
 	}
+	t.armReadDeadline()
 	for {
-		// The idle deadline lives here, not in Recv: conn reads happen on
-		// this goroutine, and each new frame re-arms it, so the peer must
-		// stay active within the SetTimeOut interval (keepalive style).
-		if d := time.Duration(t.timeout.Load()); d > 0 {
-			t.conn.SetReadDeadline(time.Now().Add(d))
-		} else {
-			t.conn.SetReadDeadline(time.Time{})
-		}
 		hdr, err := rd.NextFrame()
 		if err != nil {
 			fail(err)
@@ -105,12 +106,55 @@ func (t *socket) readLoop(src io.Reader) {
 			}
 			continue
 		}
-		if _, err := io.Copy(t.pipeWriter, rd); err != nil {
+		n, err := io.Copy(t.pipeWriter, &progressReader{sock: t, rd: rd, progressed: true})
+		if err != nil {
 			// The pipe was closed (socket Close) or the source died.
 			fail(err)
 			return
 		}
+		if n > 0 {
+			// Fresh deadline for the gap to the next frame header. The
+			// copy may have ended long after the last in-copy arming if
+			// the application consumed the tail slowly; without this
+			// the next NextFrame would run against an expired deadline
+			// and kill a healthy connection. Empty messages don't
+			// count as activity.
+			t.armReadDeadline()
+		}
 	}
+}
+
+func (t *socket) armReadDeadline() {
+	if d := time.Duration(t.timeout.Load()); d > 0 {
+		t.conn.SetReadDeadline(time.Now().Add(d))
+	} else {
+		t.conn.SetReadDeadline(time.Time{})
+	}
+}
+
+// progressReader re-arms the socket's idle deadline while a data message
+// is relayed, but only after actual data-byte progress: a stream of
+// intermediate control frames or empty continuation fragments inside a
+// fragmented message reads (0, nil) from wsutil.Reader and therefore
+// never extends the deadline, while a genuinely flowing message re-arms
+// before each subsequent read so local consumption stalls are not
+// charged against the peer. Only the read loop goroutine touches it.
+type progressReader struct {
+	sock       *socket
+	rd         io.Reader
+	progressed bool
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	if p.progressed {
+		p.sock.armReadDeadline()
+		p.progressed = false
+	}
+	n, err := p.rd.Read(b)
+	if n > 0 {
+		p.progressed = true
+	}
+	return n, err
 }
 
 // controlWriteTimeout bounds pong/close replies so a peer that stops
@@ -130,26 +174,60 @@ func (t *socket) handleControl(h ws.Header, r io.Reader) error {
 	}
 	switch h.OpCode {
 	case ws.OpPing:
-		t.conn.SetWriteDeadline(time.Now().Add(d))
-		return t.writeFrame(ws.NewPongFrame(payload))
+		// Best effort: if a Send holds the write lock (it may be
+		// blocked on a slow peer with no deadline configured), skip
+		// the pong rather than wedging the read loop behind it.
+		return t.tryWriteFrame(ws.NewPongFrame(payload), d)
 	case ws.OpClose:
 		code, reason := ws.ParseCloseFrameData(payload)
-		// Best effort close acknowledgement.
-		t.conn.SetWriteDeadline(time.Now().Add(d))
-		_ = t.writeFrame(ws.NewCloseFrame(ws.NewCloseFrameBody(code, "")))
+		// Best effort close acknowledgement. A close frame without a
+		// status code must be answered without one too: echoing the
+		// zero code would put an invalid status on the wire.
+		reply := ws.NewCloseFrame(nil)
+		if len(payload) >= 2 {
+			reply = ws.NewCloseFrame(ws.NewCloseFrameBody(code, ""))
+		}
+		_ = t.tryWriteFrame(reply, d)
 		return wsutil.ClosedError{Code: code, Reason: reason}
 	}
 	return nil
 }
 
 // writeFrame masks the frame when in client mode and writes it while
-// holding the write mutex, so concurrent writers cannot interleave frames.
-func (t *socket) writeFrame(f ws.Frame) error {
+// holding the write mutex, so concurrent writers cannot interleave
+// frames. The write deadline (d <= 0 means none) is applied under the
+// same mutex: setting it outside would let a concurrent writer's
+// deadline apply to this frame's write.
+func (t *socket) writeFrame(f ws.Frame, d time.Duration) error {
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	return t.writeFrameLocked(f, d)
+}
+
+// tryWriteFrame is writeFrame for best-effort control replies: when the
+// write lock is currently held it does nothing rather than block the
+// read loop behind a potentially deadline-less Send.
+func (t *socket) tryWriteFrame(f ws.Frame, d time.Duration) error {
+	if !t.wmu.TryLock() {
+		return nil
+	}
+	defer t.wmu.Unlock()
+	return t.writeFrameLocked(f, d)
+}
+
+func (t *socket) writeFrameLocked(f ws.Frame, d time.Duration) error {
 	if t.client {
 		f = ws.MaskFrameInPlace(f)
 	}
-	t.wmu.Lock()
-	defer t.wmu.Unlock()
+	if d > 0 {
+		if err := t.conn.SetWriteDeadline(time.Now().Add(d)); err != nil {
+			return err
+		}
+	} else {
+		if err := t.conn.SetWriteDeadline(time.Time{}); err != nil {
+			return err
+		}
+	}
 	return ws.WriteFrame(t.conn, f)
 }
 
@@ -178,9 +256,9 @@ func (t *socket) Recv(fc func(r io.Reader) (interface{}, error)) (m interface{},
 	if fc == nil {
 		return nil, fmt.Errorf("ws: nil recv callback")
 	}
-	if t.closed.Load() {
-		return nil, net.ErrClosed
-	}
+	// No fast-path on the closed flag: the pipe always reports the close
+	// cause (io.EOF after a clean peer close, net.ErrClosed after a
+	// local Close), so the error does not depend on timing.
 	// The idle deadline is managed by the read loop; Recv just consumes
 	// the relayed byte stream.
 	return fc(t.pipeReader)
@@ -197,23 +275,29 @@ func (t *socket) Send(m interface{}) (err error) {
 	}
 	buf := bufPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	defer bufPool.Put(buf)
+	defer putBuf(buf)
 	if _, err := xtransport.Write(buf, m); err != nil {
 		return err
 	}
-	if buf.Len() == 0 {
-		return fmt.Errorf("ws: empty packet send")
+	// An empty payload is sent as an empty binary frame; it adds no
+	// bytes to the peer's Recv stream, matching the tcp/quic no-op.
+	if err := t.writeFrame(ws.NewBinaryFrame(buf.Bytes()), time.Duration(t.timeout.Load())); err != nil {
+		// The frame may have been partially written (e.g. deadline
+		// expired mid-write); the stream framing is unrecoverable, so
+		// fail every later operation instead of silently corrupting it.
+		t.closeWithCause(err)
+		return err
 	}
-	if d := time.Duration(t.timeout.Load()); d > 0 {
-		if err := t.conn.SetWriteDeadline(time.Now().Add(d)); err != nil {
-			return err
-		}
-	} else {
-		if err := t.conn.SetWriteDeadline(time.Time{}); err != nil {
-			return err
-		}
+	return nil
+}
+
+// putBuf returns a send buffer to the pool unless one huge payload grew
+// it so large that pooling it would pin the memory indefinitely.
+func putBuf(buf *bytes.Buffer) {
+	if buf.Cap() > 64*1024 {
+		return
 	}
-	return t.writeFrame(ws.NewBinaryFrame(buf.Bytes()))
+	bufPool.Put(buf)
 }
 
 // SetTimeOut sets the idle interval after which the connection is

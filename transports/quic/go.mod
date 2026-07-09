@@ -1,6 +1,8 @@
 module github.com/hkloudou/xtransport/transports/quic
 
-go 1.24
+go 1.24.0
+
+toolchain go1.24.7
 
 require (
 	github.com/hkloudou/xtransport v1.1.7
@@ -8,7 +10,7 @@ require (
 )
 
 require (
-	golang.org/x/crypto v0.41.0 // indirect
-	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/crypto v0.42.0 // indirect
+	golang.org/x/net v0.44.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
 )

@@ -17,6 +17,9 @@ type wsTransportListener struct {
 	ln      net.Listener
 	server  *http.Server
 	timeout time.Duration
+	// protocols are the subprotocols accepted during the handshake; see
+	// Subprotocols.
+	protocols []string
 	// handler holds the func(xtransport.Socket) passed to Accept.
 	handler atomic.Value
 }
@@ -42,8 +45,25 @@ func (t *wsTransportListener) serveWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	c, rw, _, err := ws.UpgradeHTTP(r, w)
+	up := ws.HTTPUpgrader{}
+	if len(t.protocols) > 0 {
+		up.Protocol = func(p string) bool {
+			for _, accepted := range t.protocols {
+				if p == accepted {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	c, rw, hs, err := up.Upgrade(r, w)
 	if err != nil {
+		// Upgrade hijacks the connection before validating the
+		// handshake; on failure it writes the HTTP error but leaves
+		// the connection open and unowned — close it or it leaks.
+		if c != nil {
+			c.Close()
+		}
 		return
 	}
 	// Frames the client pipelined right behind the handshake are already
@@ -59,6 +79,7 @@ func (t *wsTransportListener) serveWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sock := newSocket(c, extra, t.timeout, false)
+	sock.Session().Set(SessionKeySubprotocol, hs.Protocol)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {

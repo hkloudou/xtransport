@@ -24,6 +24,10 @@ var ErrInvalidTopicSinglelevel = errors.New("invalid Topic; single-level wildcar
 // exceeds the 65535 byte maximum
 var ErrInvalidTopicTooLong = errors.New("invalid Topic; longer than 65535 bytes")
 
+// ErrInvalidTopicUTF8 is the error returned when a topic string is not
+// well-formed UTF-8 or contains U+0000 [MQTT-1.5.3]
+var ErrInvalidTopicUTF8 = errors.New("invalid Topic; not well-formed UTF-8 or contains U+0000")
+
 // PacketError describes a protocol violation detected while validating
 // an MQTT packet, tagged with the spec clause that it violates.
 type PacketError struct {

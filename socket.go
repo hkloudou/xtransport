@@ -12,6 +12,10 @@ type Socket interface {
 	// flight at a time; Send and SetTimeOut may be called concurrently
 	// with it. A panic inside the callback is returned as an error.
 	Recv(func(r io.Reader) (interface{}, error)) (interface{}, error)
+	// Send marshals v (see Write) and writes it to the connection.
+	// Send is safe for concurrent use by multiple goroutines: each
+	// packet is written atomically, so packets from concurrent Sends
+	// never interleave on the wire.
 	Send(interface{}) error
 	io.Closer
 	Local() string

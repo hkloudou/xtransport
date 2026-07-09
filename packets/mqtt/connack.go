@@ -48,6 +48,11 @@ func (ca *ConnackPacket) Unpack(b io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if flags&0xFE != 0 {
+		// Bits 7-1 of the acknowledge flags are reserved and must be
+		// set to 0 [MQTT-3.2.2-1].
+		return NewPacketError("3.2.2-1", "reserved connack acknowledge flag bits are non-zero")
+	}
 	ca.SessionPresent = 1&flags > 0
 	bt, err := decodeByte(b)
 	if err != nil {

@@ -175,6 +175,13 @@ func TestConnectPacket(t *testing.T) {
 }
 
 func TestPackUnpackControlPackets(t *testing.T) {
+	subscribe := NewControlPacket(Subscribe).(*SubscribePacket)
+	subscribe.MessageID = 1
+	subscribe.Topics = []string{"a/b"}
+	subscribe.Qoss = []byte{1}
+	unsubscribe := NewControlPacket(Unsubscribe).(*UnsubscribePacket)
+	unsubscribe.MessageID = 1
+	unsubscribe.Topics = []string{"a/b"}
 	packets := []ControlPacket{
 		NewControlPacket(Connect).(*ConnectPacket),
 		NewControlPacket(Connack).(*ConnackPacket),
@@ -183,26 +190,37 @@ func TestPackUnpackControlPackets(t *testing.T) {
 		NewControlPacket(Pubrec).(*PubrecPacket),
 		NewControlPacket(Pubrel).(*PubrelPacket),
 		NewControlPacket(Pubcomp).(*PubcompPacket),
-		NewControlPacket(Subscribe).(*SubscribePacket),
+		subscribe,
 		NewControlPacket(Suback).(*SubackPacket),
-		NewControlPacket(Unsubscribe).(*UnsubscribePacket),
+		unsubscribe,
 		NewControlPacket(Unsuback).(*UnsubackPacket),
 		NewControlPacket(Pingreq).(*PingreqPacket),
 		NewControlPacket(Pingresp).(*PingrespPacket),
 		NewControlPacket(Disconnect).(*DisconnectPacket),
 	}
+	// WriteTo must not mutate the packet (it is documented as safe for
+	// concurrent use), so equality is checked on the wire encoding:
+	// encode -> decode -> encode must be byte-identical.
 	buf := new(bytes.Buffer)
 	for _, packet := range packets {
 		buf.Reset()
 		if _, err := packet.WriteTo(buf); err != nil {
 			t.Errorf("Write of %T returned error: %s", packet, err)
+			continue
 		}
+		first := append([]byte(nil), buf.Bytes()...)
 		read, err := ReadPacket(buf)
 		if err != nil {
 			t.Errorf("Read of packed %T returned error: %s", packet, err)
+			continue
 		}
-		if read.String() != packet.String() {
-			t.Errorf("Read of packed %T did not equal original.\nExpected: %v\n     Got: %v", packet, packet, read)
+		var second bytes.Buffer
+		if _, err := read.WriteTo(&second); err != nil {
+			t.Errorf("Re-encode of %T returned error: %s", packet, err)
+			continue
+		}
+		if !bytes.Equal(first, second.Bytes()) {
+			t.Errorf("Roundtrip of %T not stable.\nfirst:  %x\nsecond: %x", packet, first, second.Bytes())
 		}
 	}
 }
@@ -214,8 +232,10 @@ func TestEncoding(t *testing.T) {
 	if res, err := decodeUint16(bytes.NewBuffer([]byte{0x56, 0x78})); res != 22136 || err != nil {
 		t.Errorf("decodeUint16([0x5678]) did not return (22136, nil) but (%d, %v)", res, err)
 	}
-	if res := encodeUint16(22136); !bytes.Equal(res, []byte{0x56, 0x78}) {
-		t.Errorf("encodeUint16(22136) did not return [0x5678] but [0x%X]", res)
+	var u16buf bytes.Buffer
+	writeUint16(&u16buf, 22136)
+	if !bytes.Equal(u16buf.Bytes(), []byte{0x56, 0x78}) {
+		t.Errorf("writeUint16(22136) did not write [0x5678] but [0x%X]", u16buf.Bytes())
 	}
 
 	strings := map[string][]byte{
@@ -227,8 +247,9 @@ func TestEncoding(t *testing.T) {
 		if res, err := decodeString(bytes.NewBuffer(encoded)); res != str || err != nil {
 			t.Errorf("decodeString(%v) did not return (%q, nil), but (%q, %v)", encoded, str, res, err)
 		}
-		if res := encodeString(str); !bytes.Equal(res, encoded) {
-			t.Errorf("encodeString(%q) did not return [0x%X], but [0x%X]", str, encoded, res)
+		var strbuf bytes.Buffer
+		if err := writeString(&strbuf, str); err != nil || !bytes.Equal(strbuf.Bytes(), encoded) {
+			t.Errorf("writeString(%q) wrote [0x%X] (err %v), want [0x%X]", str, strbuf.Bytes(), err, encoded)
 		}
 	}
 
@@ -245,9 +266,6 @@ func TestEncoding(t *testing.T) {
 	for length, encoded := range lengths {
 		if res, err := decodeLength(bytes.NewBuffer(encoded)); res != length || err != nil {
 			t.Errorf("decodeLength([0x%X]) did not return (%d, nil) but (%d, %v)", encoded, length, res, err)
-		}
-		if res := encodeLength(length); !bytes.Equal(res, encoded) {
-			t.Errorf("encodeLength(%d) did not return [0x%X], but [0x%X]", length, encoded, res)
 		}
 	}
 }

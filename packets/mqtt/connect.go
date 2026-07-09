@@ -52,6 +52,11 @@ func (c *ConnectPacket) String() string {
 }
 
 func (c *ConnectPacket) WriteTo(w io.Writer) (n int64, err error) {
+	if c.WillQos > 2 {
+		// Values above 2 bit-shift into the will-retain/password flags
+		// and corrupt the connect flags byte [MQTT-3.1.2-14].
+		return 0, NewPacketError("3.1.2-14", "will QoS must be 0, 1 or 2")
+	}
 	body := newBody()
 	defer putBody(body)
 
@@ -161,6 +166,27 @@ func (c *ConnectPacket) Validate() ConnackReturnCode {
 	}
 	if len(c.ClientIdentifier) > 65535 || len(c.Username) > 65535 || len(c.Password) > 65535 {
 		// Bad size field
+		return ErrProtocolViolation
+	}
+	if c.WillFlag {
+		// A will needs a QoS of 0, 1 or 2 [MQTT-3.1.2-14] and a valid,
+		// wildcard-free topic.
+		if c.WillQos > 2 || ValidateTopic(c.WillTopic) != nil {
+			return ErrProtocolViolation
+		}
+	} else {
+		// Without a will, will QoS and will retain must be zero
+		// [MQTT-3.1.2-13, MQTT-3.1.2-15].
+		if c.WillQos != 0 || c.WillRetain {
+			return ErrProtocolViolation
+		}
+	}
+	if !ValidUTF8String(c.ClientIdentifier) {
+		// Client identifiers are UTF-8 encoded strings [MQTT-3.1.3-4].
+		return ErrRefusedIDRejected
+	}
+	if c.UsernameFlag && !ValidUTF8String(c.Username) {
+		// User names are UTF-8 encoded strings [MQTT-3.1.3-11].
 		return ErrProtocolViolation
 	}
 	if len(c.ClientIdentifier) == 0 && !c.CleanSession {
