@@ -6,7 +6,7 @@ toolchain go1.24.7
 
 require (
 	github.com/gobwas/ws v1.4.0
-	github.com/hkloudou/xtransport v1.1.7
+	github.com/hkloudou/xtransport v1.1.8
 )
 
 require (
