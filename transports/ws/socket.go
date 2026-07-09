@@ -70,16 +70,15 @@ func (t *socket) readLoop(src io.Reader) {
 		state = ws.StateClientSide
 	}
 	// The idle deadline lives here, not in Recv: conn reads happen on
-	// this goroutine. Only progress on data frames re-arms it — if
-	// control frames or empty data frames counted as activity,
-	// WebSocket pings could keep an application-silent connection
-	// alive forever and defeat keepalive enforcement (e.g. MQTT
-	// [MQTT-3.1.2-24]). Arming happens before every read *inside* a
-	// data message so that time the application spends consuming a
-	// message (pipe backpressure) is never charged against the peer.
-	ar := &armingReader{sock: t, src: src}
+	// this goroutine. It is re-armed only when data bytes actually
+	// arrive — if control frames or empty fragments counted as
+	// activity, WebSocket pings could keep an application-silent
+	// connection alive forever and defeat keepalive enforcement (e.g.
+	// MQTT [MQTT-3.1.2-24]); and it is re-armed *before* the read that
+	// follows data progress, so time the application spends consuming
+	// a message (pipe backpressure) is never charged against the peer.
 	rd := &wsutil.Reader{
-		Source:         ar,
+		Source:         src,
 		State:          state,
 		OnIntermediate: t.handleControl,
 	}
@@ -107,13 +106,20 @@ func (t *socket) readLoop(src io.Reader) {
 			}
 			continue
 		}
-		ar.inData = true
-		_, err = io.Copy(t.pipeWriter, rd)
-		ar.inData = false
+		n, err := io.Copy(t.pipeWriter, &progressReader{sock: t, rd: rd, progressed: true})
 		if err != nil {
 			// The pipe was closed (socket Close) or the source died.
 			fail(err)
 			return
+		}
+		if n > 0 {
+			// Fresh deadline for the gap to the next frame header. The
+			// copy may have ended long after the last in-copy arming if
+			// the application consumed the tail slowly; without this
+			// the next NextFrame would run against an expired deadline
+			// and kill a healthy connection. Empty messages don't
+			// count as activity.
+			t.armReadDeadline()
 		}
 	}
 }
@@ -126,21 +132,29 @@ func (t *socket) armReadDeadline() {
 	}
 }
 
-// armingReader re-arms the socket's idle deadline before each read made
-// while a data message is being relayed, so the deadline measures peer
-// silence rather than total message duration or local consumption time.
-// inData is only touched by the read loop goroutine.
-type armingReader struct {
-	sock   *socket
-	src    io.Reader
-	inData bool
+// progressReader re-arms the socket's idle deadline while a data message
+// is relayed, but only after actual data-byte progress: a stream of
+// intermediate control frames or empty continuation fragments inside a
+// fragmented message reads (0, nil) from wsutil.Reader and therefore
+// never extends the deadline, while a genuinely flowing message re-arms
+// before each subsequent read so local consumption stalls are not
+// charged against the peer. Only the read loop goroutine touches it.
+type progressReader struct {
+	sock       *socket
+	rd         io.Reader
+	progressed bool
 }
 
-func (a *armingReader) Read(p []byte) (int, error) {
-	if a.inData {
-		a.sock.armReadDeadline()
+func (p *progressReader) Read(b []byte) (int, error) {
+	if p.progressed {
+		p.sock.armReadDeadline()
+		p.progressed = false
 	}
-	return a.src.Read(p)
+	n, err := p.rd.Read(b)
+	if n > 0 {
+		p.progressed = true
+	}
+	return n, err
 }
 
 // controlWriteTimeout bounds pong/close replies so a peer that stops

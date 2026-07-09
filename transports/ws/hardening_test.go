@@ -181,3 +181,119 @@ func TestEmptySendIsNoop(t *testing.T) {
 		t.Fatalf("echo mismatch: %v", got)
 	}
 }
+
+// TestSlowConsumerNotKilled: time the application spends consuming a
+// message must not be charged against the peer's idle deadline — a
+// Recv that stalls mid-message longer than the timeout must not kill a
+// connection whose peer is healthy.
+func TestSlowConsumerNotKilled(t *testing.T) {
+	tran := NewTransport("/ws", xtransport.Timeout(300*time.Millisecond))
+	l, err := tran.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer l.Close()
+
+	result := make(chan error, 1)
+	go l.Accept(func(sock xtransport.Socket) {
+		_, err := sock.Recv(func(r io.Reader) (interface{}, error) {
+			half := make([]byte, 3)
+			if _, err := io.ReadFull(r, half); err != nil {
+				return nil, err
+			}
+			// Stall well past the idle interval while the rest of the
+			// message sits in the pipe.
+			time.Sleep(800 * time.Millisecond)
+			if _, err := io.ReadFull(r, half); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		})
+		if err != nil {
+			result <- err
+			return
+		}
+		// The connection must still be usable for the next message.
+		_, err = sock.Recv(readN(3))
+		result <- err
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, _, err := gws.Dialer{}.Dial(ctx, "ws://"+l.Addr()+"/ws")
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := wsutil.WriteClientMessage(conn, gws.OpBinary, []byte("abcdef")); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	// Second message arrives while the server is stalled mid-first.
+	time.Sleep(200 * time.Millisecond)
+	if err := wsutil.WriteClientMessage(conn, gws.OpBinary, []byte("xyz")); err != nil {
+		t.Fatalf("send 2: %v", err)
+	}
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("healthy connection killed while consumer was slow: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("server never finished receiving")
+	}
+}
+
+// TestFragmentPingFloodReaped: a peer that opens a fragmented message
+// and then sends only pings (no data bytes) must still be reaped after
+// the idle interval — control traffic inside an open fragment is not
+// application progress.
+func TestFragmentPingFloodReaped(t *testing.T) {
+	tran := NewTransport("/ws", xtransport.Timeout(400*time.Millisecond))
+	l, err := tran.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer l.Close()
+
+	gone := make(chan error, 1)
+	go l.Accept(func(sock xtransport.Socket) {
+		_, err := sock.Recv(readN(16))
+		gone <- err
+		sock.Close()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, _, err := gws.Dialer{}.Dial(ctx, "ws://"+l.Addr()+"/ws")
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Open a fragmented binary message: first frame carries one byte
+	// and is not final.
+	first := gws.NewFrame(gws.OpBinary, false, []byte{0x01})
+	if err := gws.WriteFrame(conn, gws.MaskFrameInPlace(first)); err != nil {
+		t.Fatalf("send first fragment: %v", err)
+	}
+	// Then ping forever without ever finishing the message.
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case err := <-gone:
+			if err == nil {
+				t.Fatal("Recv returned nil, want timeout error")
+			}
+			return
+		case <-deadline:
+			t.Fatal("ping flood inside open fragment kept the connection alive")
+		case <-time.After(100 * time.Millisecond):
+			ping := gws.NewPingFrame([]byte("hi"))
+			if err := gws.WriteFrame(conn, gws.MaskFrameInPlace(ping)); err != nil {
+				continue
+			}
+		}
+	}
+}

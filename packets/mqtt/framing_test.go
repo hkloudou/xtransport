@@ -29,6 +29,30 @@ func TestTruncationIsUnexpectedEOF(t *testing.T) {
 	}
 }
 
+// TestShortRemainingLengthRejected: a remaining length too small for
+// the packet structure is an in-band malformed packet and must never
+// surface as a connection-level EOF.
+func TestShortRemainingLengthRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		{"puback with remaining length 0", []byte{0x40, 0x00}},
+		{"puback with remaining length 1", []byte{0x40, 0x01, 0x00}},
+		{"connack with remaining length 1", []byte{0x20, 0x01, 0x00}},
+		{"publish topic prefix cut short", []byte{0x30, 0x01, 0x00}},
+	}
+	for _, c := range cases {
+		_, err := ReadPacket(bytes.NewReader(c.data))
+		if !errors.Is(err, ErrShortRemainingLength) {
+			t.Errorf("%s: err = %v, want ErrShortRemainingLength", c.name, err)
+		}
+		if errors.Is(err, io.EOF) {
+			t.Errorf("%s: error unwraps to io.EOF", c.name)
+		}
+	}
+}
+
 // TestTrailingBytesRejected: a remaining length larger than the packet's
 // actual structure is malformed [MQTT-2.2.3] and must not be silently
 // swallowed.

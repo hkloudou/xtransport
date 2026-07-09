@@ -104,6 +104,11 @@ var (
 	// packet is malformed [MQTT-2.2.3] even though the stream stays in
 	// sync.
 	ErrTrailingBytes = errors.New("mqtt: remaining length larger than packet content")
+	// ErrShortRemainingLength is returned when a packet's declared
+	// remaining length is too small for its structure (e.g. a PUBACK
+	// with remaining length 0). The bytes were all received, so this is
+	// an in-band malformed packet, not a connection-level truncation.
+	ErrShortRemainingLength = errors.New("mqtt: remaining length too small for packet content")
 	// ErrInvalidQoS is returned when encoding a packet whose fixed
 	// header carries a QoS above 2; encoding it would corrupt the
 	// header byte.
@@ -219,6 +224,13 @@ func ReadPacketLimit(r io.Reader, maxRemainingLength int) (ControlPacket, error)
 	}
 
 	if err := cp.Unpack(&body); err != nil {
+		// The declared remaining length was delivered in full, so a
+		// reader exhaustion inside Unpack means the length is too
+		// small for the packet's structure — malformed input, never a
+		// connection-level EOF.
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			err = fmt.Errorf("%w: %s", ErrShortRemainingLength, PacketNames[fh.MessageType])
+		}
 		return nil, err
 	}
 	// Every byte declared by the remaining length must belong to the
