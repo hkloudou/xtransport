@@ -1,0 +1,43 @@
+name: release-tags
+
+# Creates release tags via the GitHub API token. This repo is a
+# multi-module workspace, so releases are multi-step (see RELEASING.md);
+# this workflow is the auditable entry point for each tagging step.
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Space-separated tag names to create (e.g. "v1.1.8 packets/mqtt/v1.1.4")'
+        required: true
+        type: string
+      sha:
+        description: 'Commit SHA to tag (defaults to the ref the workflow runs on)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: create and push tags
+        env:
+          TAGS: ${{ inputs.tags }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          target="${SHA:-$GITHUB_SHA}"
+          git cat-file -e "$target^{commit}"
+          for t in $TAGS; do
+            case "$t" in
+              *[!A-Za-z0-9./_-]*|-*) echo "refusing tag name: $t"; exit 1 ;;
+            esac
+            git tag "$t" "$target"
+            git push origin "refs/tags/$t"
+            echo "created $t -> $target"
+          done
