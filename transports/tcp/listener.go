@@ -31,6 +31,11 @@ func (t *listener) Accept(fn func(xtransport.Socket)) error {
 			if errors.Is(err, net.ErrClosed) {
 				return err
 			}
+			// net/http.Server retries its accept loop on the same
+			// deprecated predicate: timeouts and EMFILE-class errors
+			// are transient, and giving up on them would stop the
+			// whole listener.
+			//lint:ignore SA1019 mirrors net/http.Server's accept retry; the replacement would be a platform-specific errno list
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
 					tempDelay = 5 * time.Millisecond
